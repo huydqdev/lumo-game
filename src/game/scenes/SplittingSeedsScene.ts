@@ -3,7 +3,7 @@ import { Scene } from 'phaser';
 
 export class SplittingSeedsScene extends Scene {
     // Game objects
-    private stick: Phaser.GameObjects.Rectangle;
+    private stick: Phaser.GameObjects.Image;
     private seeds: Phaser.GameObjects.Image[] = [];
     private birds: Phaser.GameObjects.Rectangle[] = [];
     
@@ -27,9 +27,9 @@ export class SplittingSeedsScene extends Scene {
     private resultText: Phaser.GameObjects.Text;
     private leftCountText: Phaser.GameObjects.Text;
     private rightCountText: Phaser.GameObjects.Text;
-    private pauseButton: Phaser.GameObjects.Rectangle;
     private resultSymbol: Phaser.GameObjects.Text;
     private resultBackground: Phaser.GameObjects.Rectangle;
+    private headerBackground: Phaser.GameObjects.Rectangle;
     
     // Add these properties to the class
     private stickLineSegment: {x1: number, y1: number, x2: number, y2: number} = {x1: 0, y1: 0, x2: 0, y2: 0};
@@ -38,13 +38,23 @@ export class SplittingSeedsScene extends Scene {
     private stickAnglePrev: number = 0;
     
     // Add these color constants to the top of the class
-    private readonly LEFT_SIDE_COLOR: number = 0x8AECFF; // Light blue for left side
-    private readonly RIGHT_SIDE_COLOR: number = 0xFFB6C1; // Light pink for right side
-    private readonly SEED_BASE_COLOR: number = 0xFFD700; // Original yellow color
+    private readonly SEED_BASE_COLOR: number = 0xFFFFFF; // White color for seeds
+    private readonly CONFIRM_LEFT_COLOR: number = 0x90EE90; // Light green for left side after confirmation
+    private readonly CONFIRM_RIGHT_COLOR: number = 0x87CEFA; // Light blue for right side after confirmation
     
     // Asset keys
     private readonly SEED_KEY: string = 'splitting-seed';
     private readonly BACKGROUND_KEY: string = 'splitting-background';
+    private readonly STICK_KEY: string = 'splitting-stick';
+    private readonly BG_SOUND_KEY: string = 'splitting-bg-sound';
+    private readonly CHECK_SOUND_KEY: string = 'splitting-check-sound';
+    private readonly SEED_SOUND_KEY: string = 'splitting-seed-sound';
+    
+    // Sound effects
+    private bgSound: Phaser.Sound.BaseSound;
+    private checkSound: Phaser.Sound.BaseSound;
+    private seedSound: Phaser.Sound.BaseSound;
+    private lastSeedSoundTime: number = 0;
     
     constructor() {
         super('SplittingSeedsScene');
@@ -54,6 +64,12 @@ export class SplittingSeedsScene extends Scene {
         // Load game assets
         this.load.image(this.SEED_KEY, 'assets/SplittingSeeds/seed.png');
         this.load.image(this.BACKGROUND_KEY, 'assets/SplittingSeeds/background.png');
+        this.load.image(this.STICK_KEY, 'assets/SplittingSeeds/stick.png');
+        
+        // Load sound assets
+        this.load.audio(this.BG_SOUND_KEY, 'assets/SplittingSeeds/sfx/bg-sound.mp3');
+        this.load.audio(this.CHECK_SOUND_KEY, 'assets/SplittingSeeds/sfx/check-sound.mp3');
+        this.load.audio(this.SEED_SOUND_KEY, 'assets/SplittingSeeds/sfx/seed-sound.mp3');
     }
     
     create() {
@@ -70,6 +86,9 @@ export class SplittingSeedsScene extends Scene {
         // Initialize UI elements
         this.createUI();
         
+        // Initialize sounds
+        this.initSounds();
+        
         // Setup input handling
         this.setupInput();
         
@@ -81,6 +100,27 @@ export class SplittingSeedsScene extends Scene {
         
         // Emit event that scene is ready
         EventBus.emit('current-scene-ready', this);
+    }
+    
+    private initSounds() {
+        // Create sounds
+        this.bgSound = this.sound.add(this.BG_SOUND_KEY, {
+            loop: true,
+            volume: 0.5
+        });
+        
+        this.checkSound = this.sound.add(this.CHECK_SOUND_KEY, {
+            loop: false,
+            volume: 0.8
+        });
+        
+        this.seedSound = this.sound.add(this.SEED_SOUND_KEY, {
+            loop: false,
+            volume: 0.6
+        });
+        
+        // Start playing background music
+        this.bgSound.play();
     }
     
     update(time: number, delta: number) {
@@ -95,10 +135,10 @@ export class SplittingSeedsScene extends Scene {
             // Calculate the angle change
             const angleDelta = Phaser.Math.Angle.Wrap(newAngle - this.stickAnglePrev);
             
-            // Update stick rotation
-            this.stick.rotation = newAngle;
+            // Update stick rotation with the 90 degree correction
+            this.stick.rotation = newAngle + Math.PI/2;
             
-            // Update the stick line segment for collision detection
+            // Update the stick line segment for collision detection using the logical angle (without correction)
             const stickLength = 300; // Half the stick length
             this.stickLineSegment = {
                 x1: centerX - Math.cos(newAngle) * stickLength,
@@ -137,17 +177,21 @@ export class SplittingSeedsScene extends Scene {
         const centerX = this.cameras.main.width / 2;
         const centerY = this.cameras.main.height / 2;
         
-        // Create stick as a rectangle at the center - increased length from 400 to 600
-        this.stick = this.add.rectangle(centerX, centerY, 600, 20, 0x8B4513);
+        // Create stick as an image at the center
+        this.stick = this.add.image(centerX, centerY, this.STICK_KEY);
         this.stick.setOrigin(0.5);
-        this.stick.setDepth(1); // Lower depth so seeds appear above the stick
         
-        // Set initial random rotation - now full 360 degrees
+        this.stick.setScale(0.3, 0.5);
+        
+        this.stick.setDepth(1);
         const initialAngle = Phaser.Math.FloatBetween(0, Math.PI * 2);
-        this.stick.rotation = initialAngle;
         this.stickAnglePrev = initialAngle;
         
-        // Initialize stick line segment
+        // Apply the initial angle plus 90 degrees correction to the image
+        // This adjusts the visual orientation without affecting the logical angle
+        this.stick.rotation = initialAngle + Math.PI/2;
+        
+        // Initialize stick line segment using the logical angle (without the 90 degree correction)
         const stickLength = 300; // Half the stick length
         this.stickLineSegment = {
             x1: centerX - Math.cos(initialAngle) * stickLength,
@@ -164,8 +208,19 @@ export class SplittingSeedsScene extends Scene {
         const width = this.cameras.main.width;
         const height = this.cameras.main.height;
         
+        // Create a header background
+        this.headerBackground = this.add.rectangle(
+            width / 2,
+            30,
+            width,
+            60,
+            0x000000,
+            0.7
+        );
+        this.headerBackground.setDepth(90);
+        
         // Score text
-        this.scoreText = this.add.text(20, 20, 'SCORE: 0', {
+        this.scoreText = this.add.text(20, 18, 'SCORE: 0', {
             fontFamily: 'Arial',
             fontSize: '24px',
             color: '#ffffff'
@@ -173,7 +228,7 @@ export class SplittingSeedsScene extends Scene {
         this.scoreText.setDepth(100);
         
         // Level text
-        this.levelText = this.add.text(width - 150, 20, 'LEVEL: 1', {
+        this.levelText = this.add.text(width - 150, 18, 'LEVEL: 1', {
             fontFamily: 'Arial',
             fontSize: '24px',
             color: '#ffffff'
@@ -181,7 +236,7 @@ export class SplittingSeedsScene extends Scene {
         this.levelText.setDepth(100);
         
         // Time text
-        this.timeText = this.add.text(width / 2, 20, 'TIME: 60', {
+        this.timeText = this.add.text(width / 2, 18, 'TIME: 60', {
             fontFamily: 'Arial',
             fontSize: '24px',
             color: '#ffffff'
@@ -236,22 +291,13 @@ export class SplittingSeedsScene extends Scene {
         this.resultSymbol.setOrigin(0.5);
         this.resultSymbol.setDepth(100);
         this.resultSymbol.setVisible(false);
-        
-        // Pause button
-        this.pauseButton = this.add.rectangle(width - 40, 40, 30, 30, 0x000000);
-        this.pauseButton.setInteractive();
-        this.pauseButton.setDepth(100);
-        this.pauseButton.on('pointerdown', () => {
-            this.scene.pause();
-            // Would typically show a pause menu here
-        });
     }
     
     private createLevelDots() {
         const dotSpacing = 30;
         const dotSize = 15;
         const startX = this.cameras.main.width - 200;
-        const y = 60;
+        const y = 58;  // Adjusted to position dots below the level text, inside header
         
         for (let i = 0; i < 4; i++) {
             const dot = this.add.circle(startX + (i * dotSpacing), y, dotSize / 2, 0xffffff);
@@ -296,6 +342,18 @@ export class SplittingSeedsScene extends Scene {
         this.resultText.setVisible(false);
         this.leftCountText.setVisible(false);
         this.rightCountText.setVisible(false);
+        
+        // Hide count backgrounds
+        if (this.leftCountText.getData('background')) {
+            const leftBg = this.leftCountText.getData('background');
+            leftBg.setVisible(false);
+        }
+        
+        if (this.rightCountText.getData('background')) {
+            const rightBg = this.rightCountText.getData('background');
+            rightBg.setVisible(false);
+        }
+        
         this.resultSymbol.setVisible(false);
         this.resultBackground.setVisible(false);
         
@@ -372,8 +430,11 @@ export class SplittingSeedsScene extends Scene {
             if (!overlapping) {
                 // Create seed using the seed image
                 const seed = this.add.image(x, y, this.SEED_KEY);
-                seed.setScale(0.075); // Smaller scale for seed sprites
+                seed.setScale(0.02, 0.02);
                 seed.setDepth(5); // Higher depth so seeds appear above the stick
+                
+                // Set the base color (white) for all seeds
+                seed.setTint(this.SEED_BASE_COLOR);
                 
                 this.seeds.push(seed);
                 seedPositions.push({x, y});
@@ -387,29 +448,25 @@ export class SplittingSeedsScene extends Scene {
             console.log(`Could only place ${i} seeds out of ${count} requested due to space constraints`);
         }
         
-        // Store original positions for animation and initialize initial sides
+        // Store original positions for animation
         for (const seed of this.seeds) {
             this.seedOriginalPositions.set(seed, {x: seed.x, y: seed.y});
             this.seedAnimating.set(seed, false);
         }
-        
-        // Set initial color coding for sides
-        this.updateSeedSides();
     }
     
     private confirmStickPosition() {
         this.isStickRotating = false;
         this.isRoundComplete = true;
         
+        // Play check sound
+        this.checkSound.play();
+        
         // Count seeds on each side of the stick
         this.countSeedsOnBothSides();
         
-        // Show seed counts
-        this.leftCountText.setText(`${this.leftSeedCount}`);
-        this.leftCountText.setVisible(true);
-        
-        this.rightCountText.setText(`${this.rightSeedCount}`);
-        this.rightCountText.setVisible(true);
+        // Show seed counts with new positioning
+        this.updateSeedCountDisplay();
         
         // Determine if the split was correct
         if (this.leftSeedCount === this.rightSeedCount) {
@@ -434,8 +491,8 @@ export class SplittingSeedsScene extends Scene {
         this.leftSeedCount = 0;
         this.rightSeedCount = 0;
         
-        // Get stick angle
-        const stickAngle = this.stick.rotation;
+        // Get stick angle - IMPORTANT: Use the logical angle without 90-degree correction
+        const stickAngle = this.stick.rotation - Math.PI / 2;
         
         // Calculate normal to the stick (perpendicular direction)
         const normalAngle = stickAngle + Math.PI / 2;
@@ -452,12 +509,12 @@ export class SplittingSeedsScene extends Scene {
             
             if (dotProduct > 0) {
                 this.leftSeedCount++;
-                // Highlight left side seeds (visual indication)
-                seed.setTint(0x00FF00);
+                // Use light green for left side after confirmation
+                seed.setTint(this.CONFIRM_LEFT_COLOR);
             } else {
                 this.rightSeedCount++;
-                // Highlight right side seeds (visual indication)
-                seed.setTint(0x0000FF);
+                // Use light blue for right side after confirmation
+                seed.setTint(this.CONFIRM_RIGHT_COLOR);
             }
         });
     }
@@ -475,26 +532,12 @@ export class SplittingSeedsScene extends Scene {
         
         // Update level progress
         this.updateLevelProgress(true);
-        
-        // Show success message with background
-        this.resultText.setText(`Correct! +${pointsEarned} points`);
-        this.resultText.setColor('#C1FFC1'); // Pale green - softer color
-        this.resultText.setVisible(true);
-        
-        // Show background
-        this.resultBackground.setVisible(true);
-        this.resultBackground.width = this.resultText.width + 40;
-        
-        // Use specific colors for verification
-        this.seeds.forEach(seed => {
-            // Keep final colors for seed sides
-        });
     }
     
     private handleIncorrectSplit() {
         // Show failure indicator
         this.resultSymbol.setText('X');
-        this.resultSymbol.setColor('#FFB6C1'); // Light pink - softer color
+        this.resultSymbol.setColor('#FF6B6B'); // Light red color
         this.resultSymbol.setVisible(true);
         
         // Calculate difference
@@ -503,20 +546,6 @@ export class SplittingSeedsScene extends Scene {
         
         // Update level progress negatively
         this.updateLevelProgress(false, dotsLost);
-        
-        // Show failure message with background
-        this.resultText.setText(`Wrong! Difference: ${difference}`);
-        this.resultText.setColor('#FFB6C1'); // Light pink - softer color
-        this.resultText.setVisible(true);
-        
-        // Show background
-        this.resultBackground.setVisible(true);
-        this.resultBackground.width = this.resultText.width + 40;
-        
-        // Use specific colors for verification
-        this.seeds.forEach(seed => {
-            // Keep final colors for seed sides
-        });
     }
     
     private updateLevelProgress(correct: boolean, dotsLost: number = 0) {
@@ -574,9 +603,40 @@ export class SplittingSeedsScene extends Scene {
         // Stop the timer
         this.gameTimer.remove();
         
+        // Stop background music
+        this.bgSound.stop();
+        
         // Calculate end-of-game bonus
         const bonus = 1000 * this.level;
         this.score += bonus;
+        
+        // Create overlay for background blur
+        const overlay = this.add.rectangle(
+            this.cameras.main.width / 2,
+            this.cameras.main.height / 2,
+            this.cameras.main.width,
+            this.cameras.main.height,
+            0x000000,
+            0.7
+        );
+        overlay.setDepth(99);
+        
+        // Create popup background
+        const popupWidth = 400;
+        const popupHeight = 300;
+        const popup = this.add.rectangle(
+            this.cameras.main.width / 2,
+            this.cameras.main.height / 2,
+            popupWidth,
+            popupHeight,
+            0x333333,
+            0.9
+        );
+        popup.setStrokeStyle(4, 0xffffff);
+        popup.setDepth(100);
+        
+        // Round the corners
+        popup.setInteractive();
         
         // Show game over text
         const gameOverText = this.add.text(
@@ -585,27 +645,68 @@ export class SplittingSeedsScene extends Scene {
             'GAME OVER',
             {
                 fontFamily: 'Arial',
-                fontSize: '64px',
+                fontSize: '40px',
                 color: '#ffffff'
             }
         );
         gameOverText.setOrigin(0.5);
-        gameOverText.setDepth(100);
+        gameOverText.setDepth(101);
         
         // Show final score with bonus
         const finalScoreText = this.add.text(
             this.cameras.main.width / 2,
-            this.cameras.main.height / 2,
+            this.cameras.main.height / 2 - 40,
             `Final Score: ${this.score}\nLevel Bonus: ${bonus}`,
             {
                 fontFamily: 'Arial',
-                fontSize: '32px',
+                fontSize: '24px',
                 color: '#ffffff',
                 align: 'center'
             }
         );
         finalScoreText.setOrigin(0.5);
-        finalScoreText.setDepth(100);
+        finalScoreText.setDepth(101);
+        
+        // Create replay button
+        const buttonWidth = 150;
+        const buttonHeight = 50;
+        const replayButton = this.add.rectangle(
+            this.cameras.main.width / 2,
+            this.cameras.main.height / 2 + 50,
+            buttonWidth,
+            buttonHeight,
+            0x4CAF50
+        );
+        replayButton.setDepth(101);
+        replayButton.setInteractive({ useHandCursor: true });
+        
+        // Add button text
+        const replayText = this.add.text(
+            this.cameras.main.width / 2,
+            this.cameras.main.height / 2 + 50,
+            'PLAY AGAIN',
+            {
+                fontFamily: 'Arial',
+                fontSize: '24px',
+                color: '#ffffff'
+            }
+        );
+        replayText.setOrigin(0.5);
+        replayText.setDepth(102);
+        
+        // Add button hover effect
+        replayButton.on('pointerover', () => {
+            replayButton.fillColor = 0x66BB6A;
+        });
+        
+        replayButton.on('pointerout', () => {
+            replayButton.fillColor = 0x4CAF50;
+        });
+        
+        // Add button click event to restart the game
+        replayButton.on('pointerdown', () => {
+            this.resetGame();
+        });
     }
     
     private checkSeedCollisions(angleDelta: number) {
@@ -614,6 +715,8 @@ export class SplittingSeedsScene extends Scene {
         const centerX = this.cameras.main.width / 2;
         const centerY = this.cameras.main.height / 2;
         const seedRadius = 15; // Seed radius
+        
+        let collisionDetected = false;
         
         for (const seed of this.seeds) {
             // Skip seeds already animating
@@ -627,9 +730,12 @@ export class SplittingSeedsScene extends Scene {
             );
             
             if (distance < seedRadius) {
+                collisionDetected = true;
+                
                 // Determine which side the seed will move to
                 const angle = Math.atan2(seed.y - centerY, seed.x - centerX);
-                const normalAngle = this.stick.rotation + Math.PI / 2;
+                // IMPORTANT: Use the logical angle without 90-degree correction
+                const normalAngle = (this.stick.rotation - Math.PI / 2) + Math.PI / 2;
                 const normalX = Math.cos(normalAngle);
                 const normalY = Math.sin(normalAngle);
                 
@@ -650,8 +756,7 @@ export class SplittingSeedsScene extends Scene {
                 const targetX = seed.x + Math.cos(pushAngle) * pushDistance;
                 const targetY = seed.y + Math.sin(pushAngle) * pushDistance;
                 
-                // Brighten seed to indicate collision
-                seed.setTint(0xFFFFFF);
+                // No color change during collision - keep seed's current color
                 
                 // Tween the seed for push animation
                 this.tweens.add({
@@ -662,16 +767,25 @@ export class SplittingSeedsScene extends Scene {
                     ease: 'Quad.easeOut',
                     yoyo: true,
                     onComplete: () => {
-                        // Reset to original position but NOT color (to maintain side indication)
+                        // Reset to original position but NOT color
                         const original = this.seedOriginalPositions.get(seed);
                         if (original) {
                             seed.x = original.x;
                             seed.y = original.y;
                         }
-                        // Let updateSeedSides handle the tint
                         this.seedAnimating.set(seed, false);
                     }
                 });
+            }
+        }
+        
+        // Play seed collision sound, but limit how often it can play
+        if (collisionDetected) {
+            const currentTime = this.time.now;
+            // Only play the sound if it's been at least 100ms since the last play
+            if (currentTime - this.lastSeedSoundTime > 100) {
+                this.seedSound.play();
+                this.lastSeedSoundTime = currentTime;
             }
         }
     }
@@ -714,15 +828,17 @@ export class SplittingSeedsScene extends Scene {
     }
     
     private updateSeedSides() {
+        // This method no longer changes seed colors during rotation - all seeds stay white
         const centerX = this.cameras.main.width / 2;
         const centerY = this.cameras.main.height / 2;
         
         // Calculate normal to the stick (perpendicular direction)
-        const normalAngle = this.stick.rotation + Math.PI / 2;
+        // IMPORTANT: Use the logical angle without 90-degree correction
+        const normalAngle = (this.stick.rotation - Math.PI / 2) + Math.PI / 2;
         const normalX = Math.cos(normalAngle);
         const normalY = Math.sin(normalAngle);
         
-        // Reset counts for visual verification
+        // Reset counts for verification
         this.leftSeedCount = 0;
         this.rightSeedCount = 0;
         
@@ -737,20 +853,97 @@ export class SplittingSeedsScene extends Scene {
             // Dot product with normal to determine side
             const dotProduct = dx * normalX + dy * normalY;
             
+            // Just count sides, don't change colors during rotation
             if (dotProduct > 0) {
-                // Left side
-                seed.setTint(this.LEFT_SIDE_COLOR);
                 this.leftSeedCount++;
             } else {
-                // Right side
-                seed.setTint(this.RIGHT_SIDE_COLOR);
                 this.rightSeedCount++;
             }
         });
+    }
+    
+    private updateSeedCountDisplay() {
+        const centerX = this.cameras.main.width / 2;
+        const centerY = this.cameras.main.height / 2;
         
-        // Update side counts during active rotation (for debugging/testing)
-        if (this.isStickRotating && !this.isRoundComplete) {
-            // Optional - can add visual indicators or counters here if desired
+        // Get stick angle without the 90-degree correction
+        const stickAngle = this.stick.rotation - Math.PI / 2;
+        
+        // Calculate normal vector (perpendicular to the stick)
+        const normalAngle = stickAngle + Math.PI / 2;
+        
+        // Calculate positions for count displays
+        // Position the counts perpendicular to the stick at some distance
+        const displayDistance = 150; // Distance from center
+        
+        // Left side position
+        const leftX = centerX + Math.cos(normalAngle) * displayDistance;
+        const leftY = centerY + Math.sin(normalAngle) * displayDistance;
+        
+        // Right side position
+        const rightX = centerX - Math.cos(normalAngle) * displayDistance;
+        const rightY = centerY - Math.sin(normalAngle) * displayDistance;
+        
+        // Update text position
+        this.leftCountText.setPosition(leftX, leftY);
+        this.rightCountText.setPosition(rightX, rightY);
+        
+        // Update text content
+        this.leftCountText.setText(`${this.leftSeedCount}`);
+        this.rightCountText.setText(`${this.rightSeedCount}`);
+        
+        // Add or update background for better visibility
+        if (!this.leftCountText.getData('background')) {
+            const leftBg = this.add.circle(leftX, leftY, 30, 0x000000, 0.6);
+            leftBg.setDepth(99); // Below text
+            this.leftCountText.setData('background', leftBg);
+        } else {
+            const leftBg = this.leftCountText.getData('background');
+            leftBg.setPosition(leftX, leftY);
+            leftBg.setVisible(true);
         }
+        
+        if (!this.rightCountText.getData('background')) {
+            const rightBg = this.add.circle(rightX, rightY, 30, 0x000000, 0.6);
+            rightBg.setDepth(99); // Below text
+            this.rightCountText.setData('background', rightBg);
+        } else {
+            const rightBg = this.rightCountText.getData('background');
+            rightBg.setPosition(rightX, rightY);
+            rightBg.setVisible(true);
+        }
+        
+        // Show the text
+        this.leftCountText.setVisible(true);
+        this.rightCountText.setVisible(true);
+    }
+    
+    // Add a new method to reset the game completely
+    private resetGame() {
+        // Reset all game values
+        this.score = 0;
+        this.level = 1;
+        this.timeLeft = 60;
+        this.isStickRotating = false;
+        this.isRoundComplete = false;
+        this.seedCount = 0;
+        this.leftSeedCount = 0;
+        this.rightSeedCount = 0;
+        
+        // Reset UI elements
+        this.scoreText.setText('SCORE: 0');
+        this.levelText.setText('LEVEL: 1');
+        this.timeText.setText('TIME: 60');
+        
+        // Reset level dots
+        this.levelDots.forEach(dot => dot.fillColor = 0xffffff);
+        
+        // Stop any playing sounds before restarting
+        if (this.bgSound) this.bgSound.stop();
+        if (this.checkSound) this.checkSound.stop();
+        if (this.seedSound) this.seedSound.stop();
+        
+        // Restart the scene
+        this.scene.restart();
     }
 } 
