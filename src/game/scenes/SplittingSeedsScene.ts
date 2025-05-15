@@ -5,7 +5,7 @@ export class SplittingSeedsScene extends Scene {
     // Game objects
     private stick: Phaser.GameObjects.Image;
     private seeds: Phaser.GameObjects.Image[] = [];
-    private birds: Phaser.GameObjects.Rectangle[] = [];
+    private birds: Phaser.GameObjects.Image[] = [];
     
     // Game state
     private score: number = 0;
@@ -19,6 +19,15 @@ export class SplittingSeedsScene extends Scene {
     private seedCount: number = 0;
     private leftSeedCount: number = 0;
     private rightSeedCount: number = 0;
+    
+    private readonly LEVEL_SEED_COUNTS: { [key: number]: number[] } = {
+        1: [4, 6, 8],      
+        2: [10, 12],        
+        3: [12, 14, 16], 
+        4: [14, 16, 18],     
+        5: [18, 20],     
+        6: [20, 22, 24], 
+    };
     
     // UI elements
     private scoreText: Phaser.GameObjects.Text;
@@ -46,6 +55,8 @@ export class SplittingSeedsScene extends Scene {
     private readonly SEED_KEY: string = 'splitting-seed';
     private readonly BACKGROUND_KEY: string = 'splitting-background';
     private readonly STICK_KEY: string = 'splitting-stick';
+    private readonly LEFT_BIRD_KEY: string = 'splitting-left-bird';
+    private readonly RIGHT_BIRD_KEY: string = 'splitting-right-bird';
     private readonly BG_SOUND_KEY: string = 'splitting-bg-sound';
     private readonly CHECK_SOUND_KEY: string = 'splitting-check-sound';
     private readonly SEED_SOUND_KEY: string = 'splitting-seed-sound';
@@ -65,6 +76,8 @@ export class SplittingSeedsScene extends Scene {
         this.load.image(this.SEED_KEY, 'assets/SplittingSeeds/seed.png');
         this.load.image(this.BACKGROUND_KEY, 'assets/SplittingSeeds/background.png');
         this.load.image(this.STICK_KEY, 'assets/SplittingSeeds/stick.png');
+        this.load.image(this.LEFT_BIRD_KEY, 'assets/SplittingSeeds/bird-left.png');
+        this.load.image(this.RIGHT_BIRD_KEY, 'assets/SplittingSeeds/bird-right.png');
         
         // Load sound assets
         this.load.audio(this.BG_SOUND_KEY, 'assets/SplittingSeeds/sfx/bg-sound.mp3');
@@ -162,13 +175,15 @@ export class SplittingSeedsScene extends Scene {
     }
     
     private createBirds() {
-        // Left bird placeholder
-        const leftBird = this.add.rectangle(100, this.cameras.main.height / 2, 60, 60, 0xA67C52);
+        // Left bird
+        const leftBird = this.add.image(100, this.cameras.main.height / 2, this.LEFT_BIRD_KEY);
+        leftBird.setScale(0.2); // Adjust scale as needed based on your image size
         leftBird.setDepth(10);
         this.birds.push(leftBird);
         
-        // Right bird placeholder
-        const rightBird = this.add.rectangle(this.cameras.main.width - 100, this.cameras.main.height / 2, 60, 60, 0xA67C52);
+        // Right bird
+        const rightBird = this.add.image(this.cameras.main.width - 100, this.cameras.main.height / 2, this.RIGHT_BIRD_KEY);
+        rightBird.setScale(0.2); // Adjust scale as needed based on your image size
         rightBird.setDepth(10);
         this.birds.push(rightBird);
     }
@@ -364,8 +379,11 @@ export class SplittingSeedsScene extends Scene {
         // Set random rotation for stick
         this.stick.rotation = Phaser.Math.FloatBetween(0, Math.PI * 2);
         
-        // Determine seed count based on level
-        this.seedCount = Phaser.Math.Between(8 + (this.level * 2), 16 + (this.level * 2));
+        // Get seed count options for current level
+        const seedOptions = this.getSeedCountOptionsForLevel();
+        
+        // Select a random seed count from the options
+        this.seedCount = Phaser.Utils.Array.GetRandom(seedOptions);
         
         // Always ensure an even number of seeds for fair distribution possibility
         if (this.seedCount % 2 !== 0) {
@@ -561,21 +579,32 @@ export class SplittingSeedsScene extends Scene {
             }
             
             // If all dots are filled, level up
-            if (filledDots === 4) {
+            let allFilled = true;
+            for (let i = 0; i < this.levelDots.length; i++) {
+                if (this.levelDots[i].fillColor === 0xffffff) {
+                    allFilled = false;
+                    break;
+                }
+            }
+            
+            if (allFilled) {
                 this.levelUp();
             }
         } else {
-            // Remove progress dots based on dotsLost
+            // Make it more forgiving for incorrect splits in early levels
+            const adjustedDotsLost = this.level <= 2 ? Math.max(1, Math.floor(dotsLost / 2)) : dotsLost;
+            
+            // Remove progress dots based on adjusted dotsLost
             let unfilledCount = 0;
             for (let i = this.levelDots.length - 1; i >= 0; i--) {
-                if (this.levelDots[i].fillColor !== 0xffffff && unfilledCount < dotsLost) {
+                if (this.levelDots[i].fillColor !== 0xffffff && unfilledCount < adjustedDotsLost) {
                     this.levelDots[i].fillColor = 0xffffff;
                     unfilledCount++;
                 }
             }
             
-            // If we need to remove more dots than we had filled, go down a level
-            if (unfilledCount < dotsLost && this.level > 1) {
+            // Level down only after level 2 and only if we've lost enough dots
+            if (unfilledCount < adjustedDotsLost && this.level > 2) {
                 this.levelDown();
             }
         }
@@ -945,5 +974,10 @@ export class SplittingSeedsScene extends Scene {
         
         // Restart the scene
         this.scene.restart();
+    }
+    
+    private getSeedCountOptionsForLevel(): number[] {
+        const levelToUse = Math.min(this.level, this.maxLevel);
+        return this.LEVEL_SEED_COUNTS[levelToUse] || this.LEVEL_SEED_COUNTS[this.maxLevel];
     }
 } 

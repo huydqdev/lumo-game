@@ -19,10 +19,11 @@ interface MazeCell {
 }
 
 interface Penguin {
-    sprite: Phaser.GameObjects.Rectangle;
+    sprite: Phaser.GameObjects.Sprite;
     cell: Position;
     color: number;
     previousPositions: Position[];
+    direction: 'up' | 'right' | 'down' | 'left';
 }
 
 export class PenguinPursuitGameplayScene extends Scene {
@@ -37,6 +38,11 @@ export class PenguinPursuitGameplayScene extends Scene {
     private mazeContainer: Phaser.GameObjects.Container;
     private mazeRotationAngle: number = 0;
     private mazeRotationTimer: Phaser.Time.TimerEvent;
+    
+    // Countdown timer
+    private countdownText: Phaser.GameObjects.Text;
+    private countdownBackground: Phaser.GameObjects.Graphics;
+    private isCountdownActive: boolean = true;
 
     // Game state
     private score: number = 0;
@@ -59,14 +65,33 @@ export class PenguinPursuitGameplayScene extends Scene {
         super('PenguinPursuitGameplayScene');
     }
 
+    preload() {
+        // Load sprite sheets
+        this.load.spritesheet('player', 'assets/PenguinPursuit/Sprite/player.png', {
+            frameWidth: 48,
+            frameHeight: 48
+        });
+        
+        this.load.spritesheet('enemy', 'assets/PenguinPursuit/Sprite/enemy.png', {
+            frameWidth: 48,
+            frameHeight: 48
+        });
+    }
+
     create() {
         // Set background
         this.cameras.main.setBackgroundColor(0xADD8E6); // Light blue for icy theme
+
+        // Create animations
+        this.createAnimations();
 
         // Create maze container at the center of the screen
         const centerX = this.cameras.main.width / 2;
         const centerY = (this.cameras.main.height / 2) + 50; // Add some top padding
         this.mazeContainer = this.add.container(centerX, centerY);
+        
+        // Reset maze rotation
+        this.mazeContainer.setAngle(0);
 
         // Initialize the level
         this.initializeLevel();
@@ -83,15 +108,78 @@ export class PenguinPursuitGameplayScene extends Scene {
         // Setup input
         this.setupInput();
 
-        // Setup maze rotation timer
+        // Setup maze rotation timer (but it won't start until countdown finishes)
         this.setupMazeRotation();
+        
+        // Create and start countdown
+        this.createCountdown();
         
         // Emit event that scene is ready
         EventBus.emit('current-scene-ready', this);
     }
 
+    private createAnimations() {
+        // Player animations
+        this.anims.create({
+            key: 'player-up',
+            frames: this.anims.generateFrameNumbers('player', { start: 0, end: 3 }),
+            frameRate: 10,
+            repeat: -1
+        });
+        
+        this.anims.create({
+            key: 'player-right',
+            frames: this.anims.generateFrameNumbers('player', { start: 4, end: 7 }),
+            frameRate: 10,
+            repeat: -1
+        });
+        
+        this.anims.create({
+            key: 'player-down',
+            frames: this.anims.generateFrameNumbers('player', { start: 8, end: 11 }),
+            frameRate: 10,
+            repeat: -1
+        });
+        
+        this.anims.create({
+            key: 'player-left',
+            frames: this.anims.generateFrameNumbers('player', { start: 12, end: 15 }),
+            frameRate: 10,
+            repeat: -1
+        });
+        
+        // Enemy animations
+        this.anims.create({
+            key: 'enemy-up',
+            frames: this.anims.generateFrameNumbers('enemy', { start: 0, end: 3 }),
+            frameRate: 10,
+            repeat: -1
+        });
+        
+        this.anims.create({
+            key: 'enemy-right',
+            frames: this.anims.generateFrameNumbers('enemy', { start: 4, end: 7 }),
+            frameRate: 10,
+            repeat: -1
+        });
+        
+        this.anims.create({
+            key: 'enemy-down',
+            frames: this.anims.generateFrameNumbers('enemy', { start: 8, end: 11 }),
+            frameRate: 10,
+            repeat: -1
+        });
+        
+        this.anims.create({
+            key: 'enemy-left',
+            frames: this.anims.generateFrameNumbers('enemy', { start: 12, end: 15 }),
+            frameRate: 10,
+            repeat: -1
+        });
+    }
+
     update() {
-        if (this.isRoundComplete || this.isGameOver) return;
+        if (this.isCountdownActive || this.isRoundComplete || this.isGameOver) return;
 
         // Handle player movement based on keyboard input
         this.handlePlayerInput();
@@ -105,11 +193,55 @@ export class PenguinPursuitGameplayScene extends Scene {
         this.checkWinLoseConditions();
     }
 
+    private createCountdown() {
+        const centerX = this.cameras.main.width / 2;
+        const centerY = this.cameras.main.height / 2;
+        
+        // Create blurred background
+        this.countdownBackground = this.add.graphics();
+        this.countdownBackground.fillStyle(0x000000, 0.6);
+        this.countdownBackground.fillRoundedRect(centerX - 75, centerY - 75, 150, 150, 20);
+        this.countdownBackground.setDepth(1000);
+        
+        // Create countdown text
+        this.countdownText = this.add.text(centerX, centerY, '3', {
+            fontFamily: 'Arial',
+            fontSize: '100px',
+            color: '#ffffff',
+            stroke: '#000000',
+            strokeThickness: 4
+        });
+        this.countdownText.setOrigin(0.5);
+        this.countdownText.setDepth(1001);
+        
+        // Start countdown sequence
+        this.isCountdownActive = true;
+        this.time.delayedCall(1000, () => {
+            this.countdownText.setText('2');
+            this.time.delayedCall(1000, () => {
+                this.countdownText.setText('1');
+                this.time.delayedCall(1000, () => {
+                    this.countdownText.setText('GO!');
+                    this.time.delayedCall(500, () => {
+                        // Hide countdown elements and start game
+                        this.countdownText.setVisible(false);
+                        this.countdownBackground.setVisible(false);
+                        this.isCountdownActive = false;
+                        
+                        // Start maze rotation
+                        this.setupMazeRotation();
+                    });
+                });
+            });
+        });
+    }
+
     private initializeLevel() {
         // Reset game state
         this.isRoundComplete = false;
         this.playerMoving = false;
         this.enemyMoving = false;
+        this.isCountdownActive = true;
         
         // Adjust maze size based on level
         this.mazeSize = Math.min(8 + Math.floor(this.level / 5), 15);
@@ -339,63 +471,72 @@ export class PenguinPursuitGameplayScene extends Scene {
         const mazeWidth = this.mazeSize * this.cellSize;
         const mazeHeight = this.mazeSize * this.cellSize;
         
-        // Set player starting position at top-left corner
-        const playerCell = { x: 0, y: 0 };
+        // Set both player and enemy starting position at top-left corner
+        const startCell = { x: 0, y: 0 };
         
-        // Set enemy starting position at bottom-right corner
-        const enemyCell = { x: this.mazeSize - 1, y: this.mazeSize - 1 };
-        
-        // Find the furthest cell from the player's position for the fish
-        const fishCell = this.findFurthestCell(playerCell);
+        // Find the furthest cell from the start position for the fish
+        const fishCell = this.findFurthestCell(startCell);
         
         // Create or update player penguin
         if (!this.playerPenguin) {
+            const playerSprite = this.add.sprite(
+                -mazeWidth/2 + (startCell.x + 0.5) * this.cellSize,
+                -mazeHeight/2 + (startCell.y + 0.5) * this.cellSize,
+                'player'
+            );
+            playerSprite.setScale(this.cellSize / 48 * 0.8); // Scale to fit cell
+            playerSprite.play('player-down');
+            playerSprite.setDepth(10);
+            
             this.playerPenguin = {
-                sprite: this.add.rectangle(
-                    -mazeWidth/2 + (playerCell.x + 0.5) * this.cellSize,
-                    -mazeHeight/2 + (playerCell.y + 0.5) * this.cellSize,
-                    this.cellSize * 0.7,
-                    this.cellSize * 0.7,
-                    0x0000FF // Blue for player
-                ),
-                cell: { x: playerCell.x, y: playerCell.y },
+                sprite: playerSprite,
+                cell: { x: startCell.x, y: startCell.y },
                 previousPositions: [],
-                color: 0x0000FF
+                color: 0x0000FF, // Keep color for reference
+                direction: 'down'
             };
-            this.playerPenguin.sprite.setDepth(10);
+            
             this.mazeContainer.add(this.playerPenguin.sprite);
         } else {
-            this.playerPenguin.cell = { x: playerCell.x, y: playerCell.y };
+            this.playerPenguin.cell = { x: startCell.x, y: startCell.y };
             this.playerPenguin.sprite.setPosition(
-                -mazeWidth/2 + (playerCell.x + 0.5) * this.cellSize,
-                -mazeHeight/2 + (playerCell.y + 0.5) * this.cellSize
+                -mazeWidth/2 + (startCell.x + 0.5) * this.cellSize,
+                -mazeHeight/2 + (startCell.y + 0.5) * this.cellSize
             );
             this.playerPenguin.previousPositions = [];
+            this.playerPenguin.direction = 'down';
+            this.playerPenguin.sprite.play('player-down');
         }
         
         // Create or update enemy penguin
         if (!this.enemyPenguin) {
+            const enemySprite = this.add.sprite(
+                -mazeWidth/2 + (startCell.x + 0.5) * this.cellSize,
+                -mazeHeight/2 + (startCell.y + 0.5) * this.cellSize,
+                'enemy'
+            );
+            enemySprite.setScale(this.cellSize / 48 * 0.8); // Scale to fit cell
+            enemySprite.play('enemy-down');
+            enemySprite.setDepth(10);
+            
             this.enemyPenguin = {
-                sprite: this.add.rectangle(
-                    -mazeWidth/2 + (enemyCell.x + 0.5) * this.cellSize,
-                    -mazeHeight/2 + (enemyCell.y + 0.5) * this.cellSize,
-                    this.cellSize * 0.7,
-                    this.cellSize * 0.7,
-                    0xFF0000 // Red for enemy
-                ),
-                cell: { x: enemyCell.x, y: enemyCell.y },
+                sprite: enemySprite,
+                cell: { x: startCell.x, y: startCell.y },
                 previousPositions: [],
-                color: 0xFF0000
+                color: 0xFF0000, // Keep color for reference
+                direction: 'down'
             };
-            this.enemyPenguin.sprite.setDepth(10);
+            
             this.mazeContainer.add(this.enemyPenguin.sprite);
         } else {
-            this.enemyPenguin.cell = { x: enemyCell.x, y: enemyCell.y };
+            this.enemyPenguin.cell = { x: startCell.x, y: startCell.y };
             this.enemyPenguin.sprite.setPosition(
-                -mazeWidth/2 + (enemyCell.x + 0.5) * this.cellSize,
-                -mazeHeight/2 + (enemyCell.y + 0.5) * this.cellSize
+                -mazeWidth/2 + (startCell.x + 0.5) * this.cellSize,
+                -mazeHeight/2 + (startCell.y + 0.5) * this.cellSize
             );
             this.enemyPenguin.previousPositions = [];
+            this.enemyPenguin.direction = 'down';
+            this.enemyPenguin.sprite.play('enemy-down');
         }
         
         // Create or update fish
@@ -474,19 +615,28 @@ export class PenguinPursuitGameplayScene extends Scene {
         
         let dx = 0;
         let dy = 0;
+        let direction: 'up' | 'right' | 'down' | 'left' = this.playerPenguin.direction;
         
         // Simple directional movement without rotation
         if (this.cursors.up.isDown) {
             dy = -1; // Up
+            direction = 'up';
         } else if (this.cursors.right.isDown) {
             dx = 1;  // Right
+            direction = 'right';
         } else if (this.cursors.down.isDown) {
             dy = 1;  // Down
+            direction = 'down';
         } else if (this.cursors.left.isDown) {
             dx = -1; // Left
+            direction = 'left';
         } else {
             return; // No key pressed
         }
+        
+        // Update animation based on direction
+        this.playerPenguin.sprite.play(`player-${direction}`, true);
+        this.playerPenguin.direction = direction;
         
         // Check if movement is valid (no wall in the way)
         if (this.isValidMove(this.playerPenguin.cell, dx, dy)) {
@@ -578,6 +728,23 @@ export class PenguinPursuitGameplayScene extends Scene {
             // Calculate direction
             const dx = nextStep.x - this.enemyPenguin.cell.x;
             const dy = nextStep.y - this.enemyPenguin.cell.y;
+            
+            // Determine animation direction
+            let direction: 'up' | 'right' | 'down' | 'left' = this.enemyPenguin.direction;
+            
+            if (dx === 1) {
+                direction = 'right';
+            } else if (dx === -1) {
+                direction = 'left';
+            } else if (dy === 1) {
+                direction = 'down';
+            } else if (dy === -1) {
+                direction = 'up';
+            }
+            
+            // Update animation
+            this.enemyPenguin.sprite.play(`enemy-${direction}`, true);
+            this.enemyPenguin.direction = direction;
             
             // Save current position for path tracking
             this.enemyPenguin.previousPositions.push({ ...this.enemyPenguin.cell });
@@ -748,9 +915,15 @@ export class PenguinPursuitGameplayScene extends Scene {
             // Update trial text
             this.trialText.setText(`TRIAL: ${this.currentTrial}/${this.totalTrials}`);
             
+            // Reset maze rotation
+            this.mazeContainer.setAngle(0);
+            
             // Reset and create new maze
             this.initializeLevel();
             this.createMaze();
+            
+            // Create and start countdown
+            this.createCountdown();
         } else {
             // End of all trials
             this.gameOver();
@@ -791,7 +964,7 @@ export class PenguinPursuitGameplayScene extends Scene {
     }
 
     private rotateMaze = () => {
-        if (this.isRoundComplete || this.isGameOver) return;
+        if (this.isCountdownActive || this.isRoundComplete || this.isGameOver) return;
 
         // Rotate maze by 90 degrees
         this.tweens.add({
