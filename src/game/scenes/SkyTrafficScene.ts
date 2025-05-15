@@ -63,6 +63,20 @@ export class SkyTrafficScene extends Scene {
     }
 
     create() {
+        // Reset game state
+        this.score = 0;
+        this.lives = 3;
+        this.level = 1;
+        this.isPaused = false;
+        this.isGameOver = false;
+        this.planesSpawned = false;
+
+        // Clear any existing game elements
+        this.airplanes = [];
+        this.landingStrips = [];
+        this.junctionNodes = [];
+        this.paths = [];
+
         // Set background
         this.cameras.main.setBackgroundColor(0x002200);
 
@@ -77,15 +91,44 @@ export class SkyTrafficScene extends Scene {
 
         // Set up input handlers
         this.input.on('gameobjectdown', this.handleNodeClick, this);
-        this.input.keyboard.on('keydown-P', this.togglePause, this);
+        if (this.input.keyboard) {
+            this.input.keyboard.on('keydown-P', this.togglePause, this);
+        }
 
-        // Start spawn timer
-        this.startSpawnTimer();
+        // Start spawn timer with a slight delay to ensure everything is set up
+        this.time.delayedCall(1000, () => {
+            this.startSpawnTimer();
+        });
 
         // Start weather timer (for higher levels)
         if (this.level >= 5) {
             this.startWeatherTimer();
         }
+
+        // Display instructions
+        const instructions = this.add.text(
+            this.cameras.main.width / 2,
+            this.cameras.main.height - 50,
+            'Click on junction nodes to direct planes to matching landing strips',
+            {
+                fontFamily: 'Arial',
+                fontSize: '18px',
+                color: '#ffffff',
+                align: 'center'
+            }
+        ).setOrigin(0.5);
+
+        // Fade out instructions after a delay
+        this.time.delayedCall(5000, () => {
+            this.tweens.add({
+                targets: instructions,
+                alpha: 0,
+                duration: 1000,
+                onComplete: () => {
+                    instructions.destroy();
+                }
+            });
+        });
 
         EventBus.emit('current-scene-ready', this);
     }
@@ -210,46 +253,82 @@ export class SkyTrafficScene extends Scene {
 
     private createPaths(level: number) {
         // Create basic paths based on level
-        // For simplicity, we'll create a grid-based path system
         const width = this.cameras.main.width;
         const height = this.cameras.main.height;
+        const centerX = width / 2;
+        const centerY = height / 2;
 
-        // Create horizontal paths
-        for (let y = 100; y < height - 100; y += 150) {
+        // Clear existing paths
+        this.paths = [];
+
+        // Create a simpler path system for better visibility
+        // Horizontal path through the center
+        this.paths.push({
+            points: [
+                { x: 0, y: centerY },
+                { x: width, y: centerY }
+            ]
+        });
+
+        // Vertical path through the center
+        this.paths.push({
+            points: [
+                { x: centerX, y: 0 },
+                { x: centerX, y: height }
+            ]
+        });
+
+        // Add a few more paths based on level
+        if (level >= 2) {
+            // Top horizontal path
             this.paths.push({
                 points: [
-                    { x: 0, y },
-                    { x: width, y }
+                    { x: 0, y: centerY - 150 },
+                    { x: width, y: centerY - 150 }
+                ]
+            });
+
+            // Bottom horizontal path
+            this.paths.push({
+                points: [
+                    { x: 0, y: centerY + 150 },
+                    { x: width, y: centerY + 150 }
                 ]
             });
         }
 
-        // Create vertical paths
-        for (let x = 100; x < width - 100; x += 150) {
-            this.paths.push({
-                points: [
-                    { x, y: 0 },
-                    { x, y: height }
-                ]
-            });
-        }
-
-        // Add diagonal paths for higher levels
         if (level >= 3) {
+            // Left vertical path
             this.paths.push({
                 points: [
-                    { x: 0, y: 0 },
-                    { x: width, y: height }
+                    { x: centerX - 150, y: 0 },
+                    { x: centerX - 150, y: height }
                 ]
             });
 
+            // Right vertical path
             this.paths.push({
                 points: [
-                    { x: width, y: 0 },
-                    { x: 0, y: height }
+                    { x: centerX + 150, y: 0 },
+                    { x: centerX + 150, y: height }
                 ]
             });
         }
+
+        // Draw the paths visibly
+        const graphics = this.add.graphics();
+        graphics.lineStyle(2, 0x00ff00, 0.5);
+
+        this.paths.forEach(path => {
+            if (path.points.length >= 2) {
+                graphics.beginPath();
+                graphics.moveTo(path.points[0].x, path.points[0].y);
+                for (let i = 1; i < path.points.length; i++) {
+                    graphics.lineTo(path.points[i].x, path.points[i].y);
+                }
+                graphics.strokePath();
+            }
+        });
     }
 
     private createLandingStrips(level: number) {
@@ -261,7 +340,8 @@ export class SkyTrafficScene extends Scene {
         // Create landing strips at the edges
         for (let i = 0; i < numStrips; i++) {
             const color = this.colors[i];
-            let x, y;
+            let x: number = 0;
+            let y: number = 0;
 
             // Position strips around the edges
             switch (i % 4) {
@@ -316,12 +396,40 @@ export class SkyTrafficScene extends Scene {
             const node = this.add.circle(x, y, 15, 0xffffff);
             node.setInteractive();
 
+            // Find paths that are close to this junction
+            const nearbyPaths = [];
+            for (let j = 0; j < this.paths.length; j++) {
+                const path = this.paths[j];
+                // Check if junction is close to any point on the path
+                for (const point of path.points) {
+                    const distance = this.distanceBetween(x, y, point.x, point.y);
+                    if (distance < 50) {
+                        nearbyPaths.push(j);
+                        break;
+                    }
+                }
+            }
+
+            // If no nearby paths, use default paths
+            if (nearbyPaths.length === 0) {
+                for (let j = 0; j < Math.min(3, this.paths.length); j++) {
+                    nearbyPaths.push(j);
+                }
+            }
+
             // Create routes for this node
-            const routes = [
-                [i, (i + 1) % this.paths.length], // Route 1
-                [i, (i + 2) % this.paths.length], // Route 2
-                [i, (i + 3) % this.paths.length]  // Route 3
-            ];
+            const routes = [];
+            for (let j = 0; j < Math.min(3, nearbyPaths.length); j++) {
+                routes.push([
+                    nearbyPaths[0], // Always use the first path as source
+                    nearbyPaths[j]  // Use different paths as destinations
+                ]);
+            }
+
+            // Ensure we have at least one route
+            if (routes.length === 0 && this.paths.length > 0) {
+                routes.push([0, 0]); // Default route
+            }
 
             // Create arrows to visualize current route
             const arrows = [];
@@ -335,6 +443,11 @@ export class SkyTrafficScene extends Scene {
                 currentRouteIndex: 0,
                 arrows
             });
+
+            // Update arrow direction for initial route
+            if (routes.length > 0) {
+                this.updateJunctionArrows(this.junctionNodes[this.junctionNodes.length - 1]);
+            }
         }
     }
 
@@ -367,6 +480,9 @@ export class SkyTrafficScene extends Scene {
         const maxAirplanes = Math.min(5, this.level);
         if (this.airplanes.length >= maxAirplanes) return;
 
+        // Check if we have landing strips before spawning
+        if (this.landingStrips.length === 0) return;
+
         // Choose random color from available colors
         const colorIndex = Math.floor(Math.random() * this.landingStrips.length);
         const color = this.landingStrips[colorIndex].color;
@@ -393,6 +509,9 @@ export class SkyTrafficScene extends Scene {
             destinationStrip: colorIndex,
             isLanding: false
         });
+
+        // Mark that planes have been spawned for this level
+        this.planesSpawned = true;
     }
 
     private updateAirplanes() {
@@ -403,7 +522,16 @@ export class SkyTrafficScene extends Scene {
 
             // Get current path
             const pathIndex = airplane.currentPath[airplane.currentPath.length - 1];
+            if (pathIndex >= this.paths.length) {
+                console.error('Invalid path index:', pathIndex, 'Total paths:', this.paths.length);
+                return;
+            }
+
             const path = this.paths[pathIndex];
+            if (!path || !path.points || path.points.length < 2) {
+                console.error('Invalid path:', path);
+                return;
+            }
 
             // Get target point on path
             const targetIndex = airplane.pathIndex < path.points.length - 1 ?
@@ -433,31 +561,45 @@ export class SkyTrafficScene extends Scene {
                     const junction = this.findJunctionAtPosition(airplane.sprite.x, airplane.sprite.y);
 
                     if (junction) {
+                        console.log('Airplane at junction:', junction);
                         // Follow junction's current route
-                        const route = junction.routes[junction.currentRouteIndex];
-                        const newPathIndex = route[1]; // Second path in the route
+                        if (junction.routes && junction.routes.length > 0 &&
+                            junction.currentRouteIndex < junction.routes.length) {
 
-                        // Add new path to airplane's path
-                        airplane.currentPath.push(newPathIndex);
+                            const route = junction.routes[junction.currentRouteIndex];
+                            if (route && route.length >= 2 && route[1] < this.paths.length) {
+                                const newPathIndex = route[1]; // Second path in the route
 
-                        // Reset path index based on which end of the path we're at
-                        const newPath = this.paths[newPathIndex];
-                        const distToStart = this.distanceBetween(
-                            airplane.sprite.x, airplane.sprite.y,
-                            newPath.points[0].x, newPath.points[0].y
-                        );
-                        const distToEnd = this.distanceBetween(
-                            airplane.sprite.x, airplane.sprite.y,
-                            newPath.points[newPath.points.length - 1].x, newPath.points[newPath.points.length - 1].y
-                        );
+                                // Add new path to airplane's path
+                                airplane.currentPath.push(newPathIndex);
 
-                        airplane.pathIndex = distToStart < distToEnd ? 0 : newPath.points.length - 1;
+                                // Reset path index based on which end of the path we're at
+                                const newPath = this.paths[newPathIndex];
+                                if (newPath && newPath.points && newPath.points.length >= 2) {
+                                    const distToStart = this.distanceBetween(
+                                        airplane.sprite.x, airplane.sprite.y,
+                                        newPath.points[0].x, newPath.points[0].y
+                                    );
+                                    const distToEnd = this.distanceBetween(
+                                        airplane.sprite.x, airplane.sprite.y,
+                                        newPath.points[newPath.points.length - 1].x, newPath.points[newPath.points.length - 1].y
+                                    );
+
+                                    airplane.pathIndex = distToStart < distToEnd ? 0 : newPath.points.length - 1;
+                                }
+                            } else {
+                                console.error('Invalid route:', route);
+                            }
+                        } else {
+                            console.error('Invalid routes for junction:', junction);
+                        }
                     }
 
                     // Check if at a landing strip
                     const strip = this.findLandingStripAtPosition(airplane.sprite.x, airplane.sprite.y);
 
                     if (strip) {
+                        console.log('Airplane at landing strip:', strip, 'Airplane color:', airplane.color, 'Strip color:', strip.color);
                         // Check if this is the correct landing strip
                         if (strip.color === airplane.color && !strip.isOccupied) {
                             this.landAirplane(airplane, strip);
@@ -498,9 +640,12 @@ export class SkyTrafficScene extends Scene {
         // Nothing to do here, landings are handled in updateAirplanes
     }
 
+    // Track if any planes have been spawned in this level
+    private planesSpawned: boolean = false;
+
     private checkLevelComplete() {
-        // Level is complete when all airplanes have landed
-        if (this.airplanes.length === 0 && this.spawnTimer && !this.spawnTimer.paused) {
+        // Level is complete when at least one plane has been spawned and all have landed
+        if (this.planesSpawned && this.airplanes.length === 0 && this.spawnTimer && !this.spawnTimer.paused) {
             // Pause spawn timer
             this.spawnTimer.paused = true;
 
@@ -547,6 +692,7 @@ export class SkyTrafficScene extends Scene {
             this.time.delayedCall(3000, () => {
                 levelCompleteText.destroy();
                 this.level++;
+                this.planesSpawned = false; // Reset for next level
                 this.setupLevel(this.level);
                 this.startSpawnTimer();
                 if (this.level >= 5) {
@@ -575,19 +721,44 @@ export class SkyTrafficScene extends Scene {
     }
 
     private updateJunctionArrows(junction: JunctionNode) {
-        // Update arrow direction based on current route
-        const route = junction.routes[junction.currentRouteIndex];
-        const targetPathIndex = route[1];
-        const targetPath = this.paths[targetPathIndex];
+        try {
+            // Make sure we have routes and arrows
+            if (junction.routes.length === 0 || junction.arrows.length === 0) {
+                return;
+            }
 
-        // Calculate angle to target path
-        const targetPoint = targetPath.points[0]; // Just use first point for simplicity
-        const dx = targetPoint.x - junction.position.x;
-        const dy = targetPoint.y - junction.position.y;
-        const angle = Math.atan2(dy, dx) * (180 / Math.PI);
+            // Make sure the current route index is valid
+            if (junction.currentRouteIndex >= junction.routes.length) {
+                junction.currentRouteIndex = 0;
+            }
 
-        // Update arrow rotation
-        junction.arrows[0].setRotation(angle * (Math.PI / 180));
+            // Update arrow direction based on current route
+            const route = junction.routes[junction.currentRouteIndex];
+
+            // Make sure the target path index is valid
+            if (!route || route.length < 2 || route[1] >= this.paths.length) {
+                return;
+            }
+
+            const targetPathIndex = route[1];
+            const targetPath = this.paths[targetPathIndex];
+
+            // Make sure the target path has points
+            if (!targetPath || !targetPath.points || targetPath.points.length === 0) {
+                return;
+            }
+
+            // Calculate angle to target path
+            const targetPoint = targetPath.points[0]; // Just use first point for simplicity
+            const dx = targetPoint.x - junction.position.x;
+            const dy = targetPoint.y - junction.position.y;
+            const angle = Math.atan2(dy, dx) * (180 / Math.PI);
+
+            // Update arrow rotation
+            junction.arrows[0].setRotation(angle * (Math.PI / 180));
+        } catch (error) {
+            console.error('Error updating junction arrows:', error);
+        }
     }
 
     private landAirplane(airplane: Airplane, strip: LandingStrip) {
@@ -679,7 +850,7 @@ export class SkyTrafficScene extends Scene {
         if (this.weatherTimer) this.weatherTimer.destroy();
 
         // Show game over message
-        const gameOverText = this.add.text(
+        this.add.text(
             this.cameras.main.width / 2,
             this.cameras.main.height / 2,
             'Game Over',
@@ -693,7 +864,7 @@ export class SkyTrafficScene extends Scene {
         ).setOrigin(0.5);
 
         // Show final score
-        const finalScoreText = this.add.text(
+        this.add.text(
             this.cameras.main.width / 2,
             this.cameras.main.height / 2 + 80,
             `Final Score: ${this.score}`,
@@ -887,16 +1058,26 @@ export class SkyTrafficScene extends Scene {
 
     // Helper methods
     private findJunctionAtPosition(x: number, y: number): JunctionNode | undefined {
+        if (!this.junctionNodes || this.junctionNodes.length === 0) {
+            return undefined;
+        }
+
         return this.junctionNodes.find(junction => {
+            if (!junction || !junction.position) return false;
             const distance = this.distanceBetween(x, y, junction.position.x, junction.position.y);
-            return distance < 20;
+            return distance < 30; // Increased detection radius
         });
     }
 
     private findLandingStripAtPosition(x: number, y: number): LandingStrip | undefined {
+        if (!this.landingStrips || this.landingStrips.length === 0) {
+            return undefined;
+        }
+
         return this.landingStrips.find(strip => {
+            if (!strip || !strip.position) return false;
             const distance = this.distanceBetween(x, y, strip.position.x, strip.position.y);
-            return distance < 30;
+            return distance < 40; // Increased detection radius
         });
     }
 

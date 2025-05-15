@@ -35,15 +35,16 @@ export class MainMenu extends Scene
 
         const gameListData: GameItem[] = [
             { id: 'game0', name: 'Sky Traffic Control', imgKey: 'game_icon_0', status: 'available', sceneKey: 'SkyTrafficScene' },
-            { id: 'game1', name: 'Adventure Quest', imgKey: 'game_icon_1', status: 'available', sceneKey: 'AdventureQuestScene' },
-            { id: 'game2', name: 'Space Explorer', imgKey: 'game_icon_2', status: 'available', sceneKey: 'SpaceExplorerScene' },
-            { id: 'game3', name: 'Puzzle Mania', imgKey: 'game_icon_3', status: 'locked', sceneKey: 'PuzzleManiaScene' },
-            { id: 'game4', name: 'Racing Challenge', imgKey: 'game_icon_4', status: 'available', sceneKey: 'RacingChallengeScene' },
-            { id: 'game5', name: 'Fantasy Realm', imgKey: 'game_icon_5', status: 'locked', sceneKey: 'FantasyRealmScene' },
-            { id: 'game6', name: 'Strategy Kings', imgKey: 'game_icon_6', status: 'available', sceneKey: 'StrategyKingsScene' },
-            { id: 'game7', name: 'Hidden Object', imgKey: 'game_icon_7', status: 'available', sceneKey: 'HiddenObjectScene' },
-            { id: 'game8', name: 'Zombie Apocalypse', imgKey: 'game_icon_8', status: 'locked', sceneKey: 'ZombieApocalypseScene' },
-            { id: 'game9', name: 'Platformer Pro', imgKey: 'game_icon_9', status: 'available', sceneKey: 'PlatformerProScene' },
+            { id: 'game1', name: 'Splitting Seeds', imgKey: 'game_icon_1', status: 'available', sceneKey: 'SplittingSeedsScene' },
+            { id: 'game2', name: 'Penguin Pursuit', imgKey: 'game_icon_1', status: 'available', sceneKey: 'PenguinPursuitGameplayScene' },
+            { id: 'game3', name: 'Space Explorer', imgKey: 'game_icon_2', status: 'locked', sceneKey: 'SpaceExplorerScene' },
+            { id: 'game4', name: 'Puzzle Mania', imgKey: 'game_icon_3', status: 'locked', sceneKey: 'PuzzleManiaScene' },
+            { id: 'game5', name: 'Racing Challenge', imgKey: 'game_icon_4', status: 'locked', sceneKey: 'RacingChallengeScene' },
+            { id: 'game6', name: 'Fantasy Realm', imgKey: 'game_icon_5', status: 'locked', sceneKey: 'FantasyRealmScene' },
+            { id: 'game7', name: 'Strategy Kings', imgKey: 'game_icon_6', status: 'locked', sceneKey: 'StrategyKingsScene' },
+            { id: 'game8', name: 'Hidden Object', imgKey: 'game_icon_7', status: 'locked', sceneKey: 'HiddenObjectScene' },
+            { id: 'game9', name: 'Zombie Apocalypse', imgKey: 'game_icon_8', status: 'locked', sceneKey: 'ZombieApocalypseScene' },
+            { id: 'game10', name: 'Platformer Pro', imgKey: 'game_icon_9', status: 'locked', sceneKey: 'PlatformerProScene' },
         ];
 
         this.gameItems = this.add.group();
