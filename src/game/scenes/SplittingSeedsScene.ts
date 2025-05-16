@@ -19,6 +19,12 @@ export class SplittingSeedsScene extends Scene {
     private seedCount: number = 0;
     private leftSeedCount: number = 0;
     private rightSeedCount: number = 0;
+    private isGameActive: boolean = false;
+    
+    // Tutorial and countdown elements
+    private tutorialPopup: Phaser.GameObjects.Container;
+    private tutorialOverlay: Phaser.GameObjects.Rectangle;
+    private countdownText: Phaser.GameObjects.Text;
     
     private readonly LEVEL_SEED_COUNTS: { [key: number]: number[] } = {
         1: [4, 6, 8],      
@@ -61,6 +67,9 @@ export class SplittingSeedsScene extends Scene {
     private readonly CHECK_SOUND_KEY: string = 'splitting-check-sound';
     private readonly SEED_SOUND_KEY: string = 'splitting-seed-sound';
     
+    // Font settings
+    private readonly FONT_FAMILY: string = 'Fuzzy Bubbles';
+    
     // Sound effects
     private bgSound: Phaser.Sound.BaseSound;
     private checkSound: Phaser.Sound.BaseSound;
@@ -69,20 +78,6 @@ export class SplittingSeedsScene extends Scene {
     
     constructor() {
         super('SplittingSeedsScene');
-    }
-    
-    preload() {
-        // Load game assets
-        this.load.image(this.SEED_KEY, 'assets/SplittingSeeds/seed.png');
-        this.load.image(this.BACKGROUND_KEY, 'assets/SplittingSeeds/background.png');
-        this.load.image(this.STICK_KEY, 'assets/SplittingSeeds/stick.png');
-        this.load.image(this.LEFT_BIRD_KEY, 'assets/SplittingSeeds/bird-left.png');
-        this.load.image(this.RIGHT_BIRD_KEY, 'assets/SplittingSeeds/bird-right.png');
-        
-        // Load sound assets
-        this.load.audio(this.BG_SOUND_KEY, 'assets/SplittingSeeds/sfx/bg-sound.mp3');
-        this.load.audio(this.CHECK_SOUND_KEY, 'assets/SplittingSeeds/sfx/check-sound.mp3');
-        this.load.audio(this.SEED_SOUND_KEY, 'assets/SplittingSeeds/sfx/seed-sound.mp3');
     }
     
     create() {
@@ -105,14 +100,217 @@ export class SplittingSeedsScene extends Scene {
         // Setup input handling
         this.setupInput();
         
-        // Start the game timer
+        // Start the game timer (but pause it until the tutorial is dismissed)
         this.startGameTimer();
+        this.gameTimer.paused = true;
         
-        // Start first round
-        this.startNewRound();
+        // Show Vietnamese tutorial popup
+        this.showTutorialPopup();
         
         // Emit event that scene is ready
         EventBus.emit('current-scene-ready', this);
+    }
+    
+    // Create the Vietnamese tutorial popup
+    private showTutorialPopup() {
+        const width = this.cameras.main.width;
+        const height = this.cameras.main.height;
+        
+        // Create blurred background overlay
+        this.tutorialOverlay = this.add.rectangle(
+            width / 2,
+            height / 2,
+            width,
+            height,
+            0x000000,
+            0.7
+        );
+        this.tutorialOverlay.setDepth(200);
+        this.tutorialOverlay.setInteractive();
+        
+        // Create popup container
+        this.tutorialPopup = this.add.container(width / 2, height / 2);
+        this.tutorialPopup.setDepth(201);
+        
+        // Define popup dimensions
+        const popupWidth = 450;
+        const popupHeight = 500;
+        const popupCornerRadius = 20; // Define corner radius for rounded corners
+        
+        // Create popup background with rounded corners using graphics
+        const popupGraphics = this.add.graphics();
+        popupGraphics.fillStyle(0x333333, 0.9);
+        popupGraphics.fillRoundedRect(-popupWidth/2, -popupHeight/2, popupWidth, popupHeight, popupCornerRadius);
+        popupGraphics.lineStyle(4, 0xffffff);
+        popupGraphics.strokeRoundedRect(-popupWidth/2, -popupHeight/2, popupWidth, popupHeight, popupCornerRadius);
+        popupGraphics.setInteractive(new Phaser.Geom.Rectangle(-popupWidth/2, -popupHeight/2, popupWidth, popupHeight), Phaser.Geom.Rectangle.Contains);
+        
+        // Add the graphics to the container
+        this.tutorialPopup.add(popupGraphics);
+        
+        // Add title at the top of the popup
+        const titleText = this.add.text(
+            0, -popupHeight/2 + 30,
+            'HOW TO PLAY',
+            {
+                fontFamily: this.FONT_FAMILY,
+                fontSize: '32px',
+                color: '#ffffff',
+                fontStyle: 'bold',
+                align: 'center'
+            }
+        );
+        titleText.setOrigin(0.5);
+        this.tutorialPopup.add(titleText);
+        
+        // Create instruction text in Vietnamese
+        const instructionText = this.add.text(
+            0, -30,
+            '1. Xoay thanh gỗ để chia các hạt thành hai nhóm đều nhau\n\n' +
+            '2. Nhấn vào màn hình để xác nhận vị trí thanh gỗ\n\n' +
+            '3. Nếu hai bên có số lượng hạt bằng nhau, bạn sẽ được điểm\n\n' +
+            '4. Hoàn thành càng nhiều vòng càng tốt trong thời gian 60 giây\n\n' +
+            '5. Cố gắng đạt cấp độ cao nhất!',
+            {
+                fontFamily: this.FONT_FAMILY,
+                fontSize: '20px',
+                color: '#ffffff',
+                align: 'left',
+                wordWrap: { width: popupWidth - 60 }
+            }
+        );
+        instructionText.setOrigin(0.5);
+        
+        // Create start button
+        const buttonWidth = 180;
+        const buttonHeight = 60;
+        const cornerRadius = 16;
+        
+        // Create graphics object for rounded button
+        const startButtonGraphics = this.add.graphics();
+        startButtonGraphics.fillStyle(0x4CAF50, 1);
+        startButtonGraphics.fillRoundedRect(
+            -buttonWidth/2, popupHeight/2 - 60 - buttonHeight/2,
+            buttonWidth, 
+            buttonHeight,
+            cornerRadius
+        );
+        
+        // Create hitarea for the button
+        const startButton = this.add.zone(
+            0, popupHeight / 2 - 60,
+            buttonWidth,
+            buttonHeight
+        );
+        startButton.setInteractive({ useHandCursor: true });
+        
+        // Add button text
+        const startText = this.add.text(
+            0, popupHeight / 2 - 60,
+            'START!!!',
+            {
+                fontFamily: this.FONT_FAMILY,
+                fontSize: '28px',
+                color: '#ffffff'
+            }
+        );
+        startText.setOrigin(0.5);
+        
+        // Add button hover effect
+        startButton.on('pointerover', () => {
+            startButtonGraphics.clear();
+            startButtonGraphics.fillStyle(0x66BB6A, 1);
+            startButtonGraphics.fillRoundedRect(
+                -buttonWidth/2, popupHeight/2 - 60 - buttonHeight/2,
+                buttonWidth, 
+                buttonHeight,
+                cornerRadius
+            );
+        });
+        
+        startButton.on('pointerout', () => {
+            startButtonGraphics.clear();
+            startButtonGraphics.fillStyle(0x4CAF50, 1);
+            startButtonGraphics.fillRoundedRect(
+                -buttonWidth/2, popupHeight/2 - 60 - buttonHeight/2,
+                buttonWidth, 
+                buttonHeight,
+                cornerRadius
+            );
+        });
+        
+        // Add all elements to the container
+        this.tutorialPopup.add([
+            instructionText,
+            startButton,
+            startButtonGraphics,
+            startText
+        ]);
+        
+        // Add click events
+        this.tutorialOverlay.on('pointerdown', () => {
+            this.closeTutorialAndStartCountdown();
+        });
+        
+        startButton.on('pointerdown', () => {
+            this.closeTutorialAndStartCountdown();
+        });
+    }
+    
+    private closeTutorialAndStartCountdown() {
+        // Hide tutorial elements
+        this.tutorialPopup.setVisible(false);
+        this.tutorialOverlay.setVisible(false);
+        
+        // Remove interactivity
+        this.tutorialOverlay.disableInteractive();
+        
+        // Create countdown text
+        this.countdownText = this.add.text(
+            this.cameras.main.width / 2,
+            this.cameras.main.height / 2,
+            '3',
+            {
+                fontFamily: this.FONT_FAMILY,
+                fontSize: '120px',
+                color: '#ffffff',
+                stroke: '#000000',
+                strokeThickness: 8
+            }
+        );
+        this.countdownText.setOrigin(0.5);
+        this.countdownText.setDepth(150);
+        
+        // Start countdown sequence
+        let count = 3;
+        const countdown = this.time.addEvent({
+            delay: 1000,
+            callback: () => {
+                count--;
+                if (count > 0) {
+                    this.countdownText.setText(count.toString());
+                } else if (count === 0) {
+                    this.countdownText.setText('GO!');
+                    this.countdownText.setColor('#7CFC00');
+                } else {
+                    this.countdownText.setVisible(false);
+                    this.startGameplay();
+                }
+            },
+            callbackScope: this,
+            repeat: 3
+        });
+    }
+    
+    private startGameplay() {
+        // Start actual gameplay
+        this.isGameActive = true;
+        
+        // Unpause the game timer
+        this.gameTimer.paused = false;
+        
+        // Start first round
+        this.startNewRound();
     }
     
     private initSounds() {
@@ -137,6 +335,9 @@ export class SplittingSeedsScene extends Scene {
     }
     
     update(time: number, delta: number) {
+        // Skip updates if game is not active yet
+        if (!this.isGameActive) return;
+        
         const centerX = this.cameras.main.width / 2;
         const centerY = this.cameras.main.height / 2;
         
@@ -234,9 +435,87 @@ export class SplittingSeedsScene extends Scene {
         );
         this.headerBackground.setDepth(90);
         
-        // Score text
-        this.scoreText = this.add.text(20, 18, 'SCORE: 0', {
-            fontFamily: 'Arial',
+        // Create Home button in the top-left corner
+        const homeButtonSize = 40;
+        const homeButtonPadding = 10;
+        const homeButtonX = homeButtonPadding + homeButtonSize/2;
+        const homeButtonY = 30; // Centered vertically in header
+        
+        // Create rounded background for home button
+        const homeButtonGraphics = this.add.graphics();
+        homeButtonGraphics.fillStyle(0x4CAF50, 1);
+        homeButtonGraphics.fillRoundedRect(
+            homeButtonX - homeButtonSize/2, 
+            homeButtonY - homeButtonSize/2, 
+            homeButtonSize, 
+            homeButtonSize, 
+            8 // corner radius
+        );
+        homeButtonGraphics.setDepth(100);
+        
+        // Add home icon/text
+        const homeText = this.add.text(
+            homeButtonX,
+            homeButtonY,
+            '🏠',
+            {
+                fontFamily: this.FONT_FAMILY,
+                fontSize: '24px',
+                color: '#ffffff'
+            }
+        );
+        homeText.setOrigin(0.5);
+        homeText.setDepth(101);
+        
+        // Create interactive zone for the button
+        const homeButton = this.add.zone(
+            homeButtonX,
+            homeButtonY,
+            homeButtonSize,
+            homeButtonSize
+        );
+        homeButton.setInteractive({ useHandCursor: true });
+        homeButton.setDepth(102);
+        
+        // Add hover effects
+        homeButton.on('pointerover', () => {
+            homeButtonGraphics.clear();
+            homeButtonGraphics.fillStyle(0x66BB6A, 1); // Lighter green on hover
+            homeButtonGraphics.fillRoundedRect(
+                homeButtonX - homeButtonSize/2, 
+                homeButtonY - homeButtonSize/2, 
+                homeButtonSize, 
+                homeButtonSize, 
+                8
+            );
+        });
+        
+        homeButton.on('pointerout', () => {
+            homeButtonGraphics.clear();
+            homeButtonGraphics.fillStyle(0x4CAF50, 1);
+            homeButtonGraphics.fillRoundedRect(
+                homeButtonX - homeButtonSize/2, 
+                homeButtonY - homeButtonSize/2, 
+                homeButtonSize, 
+                homeButtonSize, 
+                8
+            );
+        });
+        
+        // Add click event to navigate back to MainMenu
+        homeButton.on('pointerdown', () => {
+            // Stop any sounds that may be playing
+            if (this.bgSound) this.bgSound.stop();
+            if (this.checkSound) this.checkSound.stop();
+            if (this.seedSound) this.seedSound.stop();
+            
+            // Navigate to MainMenu scene
+            this.scene.start('MainMenu');
+        });
+        
+        // Score text - adjust position to avoid overlapping with home button
+        this.scoreText = this.add.text(homeButtonX + homeButtonSize + 20, 18, 'SCORE: 0', {
+            fontFamily: this.FONT_FAMILY,
             fontSize: '24px',
             color: '#ffffff'
         });
@@ -244,7 +523,7 @@ export class SplittingSeedsScene extends Scene {
         
         // Level text
         this.levelText = this.add.text(width - 150, 18, 'LEVEL: 1', {
-            fontFamily: 'Arial',
+            fontFamily: this.FONT_FAMILY,
             fontSize: '24px',
             color: '#ffffff'
         });
@@ -252,7 +531,7 @@ export class SplittingSeedsScene extends Scene {
         
         // Time text
         this.timeText = this.add.text(width / 2, 18, 'TIME: 60', {
-            fontFamily: 'Arial',
+            fontFamily: this.FONT_FAMILY,
             fontSize: '24px',
             color: '#ffffff'
         });
@@ -264,7 +543,7 @@ export class SplittingSeedsScene extends Scene {
         
         // Result text (initially hidden)
         this.resultText = this.add.text(width / 2, height / 2 + 150, '', {
-            fontFamily: 'Arial',
+            fontFamily: this.FONT_FAMILY,
             fontSize: '32px',
             color: '#ffffff'
         });
@@ -280,7 +559,7 @@ export class SplittingSeedsScene extends Scene {
         
         // Seed count texts (initially hidden)
         this.leftCountText = this.add.text(width / 4, height / 2, '', {
-            fontFamily: 'Arial',
+            fontFamily: this.FONT_FAMILY,
             fontSize: '48px',
             color: '#ffffff'
         });
@@ -289,7 +568,7 @@ export class SplittingSeedsScene extends Scene {
         this.leftCountText.setVisible(false);
         
         this.rightCountText = this.add.text(width * 3/4, height / 2, '', {
-            fontFamily: 'Arial',
+            fontFamily: this.FONT_FAMILY,
             fontSize: '48px',
             color: '#ffffff'
         });
@@ -299,7 +578,7 @@ export class SplittingSeedsScene extends Scene {
         
         // Result symbol (check or X) - initially hidden
         this.resultSymbol = this.add.text(width / 2, height / 2, '', {
-            fontFamily: 'Arial',
+            fontFamily: this.FONT_FAMILY,
             fontSize: '120px',
             color: '#ff0000'
         });
@@ -323,11 +602,11 @@ export class SplittingSeedsScene extends Scene {
     }
     
     private setupInput() {
-        // Click/touch to confirm stick position
+        // Click/touch to confirm stick position - only when game is active
         this.input.on('pointerdown', () => {
-            if (this.isStickRotating && !this.isRoundComplete) {
+            if (this.isGameActive && this.isStickRotating && !this.isRoundComplete) {
                 this.confirmStickPosition();
-            } else if (this.isRoundComplete) {
+            } else if (this.isGameActive && this.isRoundComplete) {
                 this.startNewRound();
             }
         });
@@ -673,7 +952,7 @@ export class SplittingSeedsScene extends Scene {
             this.cameras.main.height / 2 - 100,
             'GAME OVER',
             {
-                fontFamily: 'Arial',
+                fontFamily: this.FONT_FAMILY,
                 fontSize: '40px',
                 color: '#ffffff'
             }
@@ -687,7 +966,7 @@ export class SplittingSeedsScene extends Scene {
             this.cameras.main.height / 2 - 40,
             `Final Score: ${this.score}\nLevel Bonus: ${bonus}`,
             {
-                fontFamily: 'Arial',
+                fontFamily: this.FONT_FAMILY,
                 fontSize: '24px',
                 color: '#ffffff',
                 align: 'center'
@@ -715,7 +994,7 @@ export class SplittingSeedsScene extends Scene {
             this.cameras.main.height / 2 + 50,
             'PLAY AGAIN',
             {
-                fontFamily: 'Arial',
+                fontFamily: this.FONT_FAMILY,
                 fontSize: '24px',
                 color: '#ffffff'
             }

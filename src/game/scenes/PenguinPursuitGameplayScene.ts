@@ -34,10 +34,11 @@ export class PenguinPursuitGameplayScene extends Scene {
     private cellSize: number = 0;
     private playerPenguin: Penguin;
     private enemyPenguin: Penguin;
-    private fish: Phaser.GameObjects.Rectangle;
+    private fish: Phaser.GameObjects.Sprite;
     private mazeContainer: Phaser.GameObjects.Container;
     private mazeRotationAngle: number = 0;
     private mazeRotationTimer: Phaser.Time.TimerEvent;
+    private directionIndicator: Phaser.GameObjects.Container; // New property for direction indicator
     
     // Countdown timer
     private countdownText: Phaser.GameObjects.Text;
@@ -46,7 +47,7 @@ export class PenguinPursuitGameplayScene extends Scene {
 
     // Game state
     private score: number = 0;
-    private level: number = 1;
+    private difficulty: 'normal' | 'hard' = 'normal';
     private currentTrial: number = 1;
     private totalTrials: number = 8;
     private isGameOver: boolean = false;
@@ -56,31 +57,25 @@ export class PenguinPursuitGameplayScene extends Scene {
     private cursors: Phaser.Types.Input.Keyboard.CursorKeys;
 
     // UI elements
+    private uiHeader: Phaser.GameObjects.Container;
     private scoreText: Phaser.GameObjects.Text;
-    private levelText: Phaser.GameObjects.Text;
     private trialText: Phaser.GameObjects.Text;
+    private difficultyButton: Phaser.GameObjects.Container;
     private resultText: Phaser.GameObjects.Text;
 
     constructor() {
         super('PenguinPursuitGameplayScene');
     }
 
-    preload() {
-        // Load sprite sheets
-        this.load.spritesheet('player', 'assets/PenguinPursuit/Sprite/player.png', {
-            frameWidth: 48,
-            frameHeight: 48
-        });
-        
-        this.load.spritesheet('enemy', 'assets/PenguinPursuit/Sprite/enemy.png', {
-            frameWidth: 48,
-            frameHeight: 48
-        });
-    }
-
     create() {
-        // Set background
-        this.cameras.main.setBackgroundColor(0xADD8E6); // Light blue for icy theme
+        // Set scene background image
+        const sceneBg = this.add.image(this.cameras.main.width / 2, this.cameras.main.height / 2, 'scene-bg');
+        sceneBg.setOrigin(0.5, 0.5);
+        // Scale to fit screen, maintaining aspect ratio (cover)
+        const scaleX = this.cameras.main.width / sceneBg.width;
+        const scaleY = this.cameras.main.height / sceneBg.height;
+        sceneBg.setScale(Math.max(scaleX, scaleY));
+        sceneBg.setDepth(-1); // Ensure it's behind everything
 
         // Create animations
         this.createAnimations();
@@ -89,6 +84,13 @@ export class PenguinPursuitGameplayScene extends Scene {
         const centerX = this.cameras.main.width / 2;
         const centerY = (this.cameras.main.height / 2) + 50; // Add some top padding
         this.mazeContainer = this.add.container(centerX, centerY);
+
+        // Add maze background to the container
+        // It will be drawn first, so it appears behind other elements added later to the container
+        const mazeBgImage = this.add.image(0, 0, 'maze-bg'); // Centered in the container
+        mazeBgImage.setOrigin(0.5, 0.5);
+        // We will resize it in drawMaze after cellSize is known, to fit the maze precisely
+        this.mazeContainer.add(mazeBgImage); 
         
         // Reset maze rotation
         this.mazeContainer.setAngle(0);
@@ -243,8 +245,12 @@ export class PenguinPursuitGameplayScene extends Scene {
         this.enemyMoving = false;
         this.isCountdownActive = true;
         
-        // Adjust maze size based on level
-        this.mazeSize = Math.min(8 + Math.floor(this.level / 5), 15);
+        // Adjust maze size based on difficulty and current trial
+        if (this.difficulty === 'normal') {
+            this.mazeSize = Math.min(8 + Math.floor(this.currentTrial / 2), 12);
+        } else { // hard
+            this.mazeSize = Math.min(10 + Math.floor(this.currentTrial / 2), 15);
+        }
         
         // Calculate cell size based on available screen space
         const availableWidth = this.cameras.main.width * 0.8;
@@ -369,8 +375,16 @@ export class PenguinPursuitGameplayScene extends Scene {
         // Center the maze graphics within the container
         this.mazeGraphics.setPosition(-mazeWidth/2, -mazeHeight/2);
         
+        // Resize and position the maze background image
+        const mazeBgImage = this.mazeContainer.getAt(0) as Phaser.GameObjects.Image; // Assuming it's the first child added
+        if (mazeBgImage && mazeBgImage.texture.key === 'maze-bg') {
+            mazeBgImage.setDisplaySize(mazeWidth, mazeHeight);
+            // Ensure it stays behind other maze elements visually, even though it was added first.
+            // Alternative: this.mazeContainer.sendToBack(mazeBgImage);
+        }
+        
         // Draw the maze cells
-        this.mazeGraphics.lineStyle(2, 0x000000, 1);
+        this.mazeGraphics.lineStyle(5, 0xffffff, 1);
         
         // Draw walls
         for (let y = 0; y < this.mazeSize; y++) {
@@ -413,8 +427,63 @@ export class PenguinPursuitGameplayScene extends Scene {
             }
         }
         
+        // Create direction indicator
+        this.createDirectionIndicator(mazeWidth, mazeHeight);
+        
         // After maze is drawn, set up game objects
         this.placePenguinsAndFish();
+    }
+
+    private createDirectionIndicator(mazeWidth: number, mazeHeight: number) {
+        // Remove existing indicator if it exists
+        if (this.directionIndicator) {
+            this.directionIndicator.destroy();
+        }
+        
+        // Create a new container for the indicator
+        // Position at the top edge of the maze (no gap)
+        this.directionIndicator = this.add.container(0, -mazeHeight/2);
+        this.mazeContainer.add(this.directionIndicator);
+        
+        // Create the semicircle background
+        const radius = 40;
+        const block = this.add.graphics();
+        
+        // Fill with dark gray
+        block.fillStyle(0x333333, 1);
+        
+        // Draw semicircle (half circle)
+        block.beginPath();
+        block.arc(0, 0, radius, Math.PI, 0, false); // From 180° to 0° (semicircle facing up)
+        block.fillPath();
+        
+        // Add white border
+        block.lineStyle(2, 0xFFFFFF, 1);
+        block.beginPath();
+        block.arc(0, 0, radius, Math.PI, 0, false);
+        block.lineTo(radius, 0); // Bottom right
+        block.lineTo(-radius, 0); // Bottom left
+        block.closePath();
+        block.strokePath();
+        
+        this.directionIndicator.add(block);
+        
+        // Create the upward pointing arrow
+        const arrow = this.add.graphics();
+        arrow.fillStyle(0xFFFF00, 1); // Yellow arrow
+        
+        // Draw arrow pointing upward (centered in the semicircle)
+        arrow.beginPath();
+        arrow.moveTo(0, -radius/1.5); // Arrow tip (higher in the semicircle)
+        arrow.lineTo(15, -radius/3); // Bottom right
+        arrow.lineTo(-15, -radius/3); // Bottom left
+        arrow.closePath();
+        arrow.fill();
+        
+        this.directionIndicator.add(arrow);
+        
+        // Set the depth to ensure it appears above maze elements
+        this.directionIndicator.setDepth(20);
     }
 
     private findFurthestCell(startCell: Position): Position {
@@ -484,9 +553,10 @@ export class PenguinPursuitGameplayScene extends Scene {
                 -mazeHeight/2 + (startCell.y + 0.5) * this.cellSize,
                 'player'
             );
-            playerSprite.setScale(this.cellSize / 48 * 0.8); // Scale to fit cell
+            playerSprite.setScale(this.cellSize / 48 * 1.2); // Increased scale from 0.8 to 1.2
             playerSprite.play('player-down');
             playerSprite.setDepth(10);
+            playerSprite.setAngle(0); // Reset rotation
             
             this.playerPenguin = {
                 sprite: playerSprite,
@@ -506,6 +576,8 @@ export class PenguinPursuitGameplayScene extends Scene {
             this.playerPenguin.previousPositions = [];
             this.playerPenguin.direction = 'down';
             this.playerPenguin.sprite.play('player-down');
+            this.playerPenguin.sprite.setScale(this.cellSize / 48 * 1.2); // Update scale here too
+            this.playerPenguin.sprite.setAngle(0); // Reset rotation
         }
         
         // Create or update enemy penguin
@@ -515,9 +587,10 @@ export class PenguinPursuitGameplayScene extends Scene {
                 -mazeHeight/2 + (startCell.y + 0.5) * this.cellSize,
                 'enemy'
             );
-            enemySprite.setScale(this.cellSize / 48 * 0.8); // Scale to fit cell
+            enemySprite.setScale(this.cellSize / 48 * 1.2); // Increased scale from 0.8 to 1.2
             enemySprite.play('enemy-down');
             enemySprite.setDepth(10);
+            enemySprite.setAngle(0); // Reset rotation
             
             this.enemyPenguin = {
                 sprite: enemySprite,
@@ -537,25 +610,34 @@ export class PenguinPursuitGameplayScene extends Scene {
             this.enemyPenguin.previousPositions = [];
             this.enemyPenguin.direction = 'down';
             this.enemyPenguin.sprite.play('enemy-down');
+            this.enemyPenguin.sprite.setScale(this.cellSize / 48 * 1.2); // Update scale here too
+            this.enemyPenguin.sprite.setAngle(0); // Reset rotation
         }
+        
+        // Select a random fish image key (1-4)
+        const fishNumber = Math.floor(Math.random() * 4) + 1;
+        const fishKey = `fish-${fishNumber}`;
         
         // Create or update fish
         if (!this.fish) {
-            this.fish = this.add.rectangle(
+            this.fish = this.add.sprite(
                 -mazeWidth/2 + (fishCell.x + 0.5) * this.cellSize,
                 -mazeHeight/2 + (fishCell.y + 0.5) * this.cellSize,
-                this.cellSize * 0.6,
-                this.cellSize * 0.4,
-                0xFFD700 // Gold for fish
+                fishKey
             );
+            this.fish.setScale(this.cellSize / 64 * 0.34); // Assuming fish is around 64px, scale to fit cell
             this.fish.setDepth(5);
+            this.fish.setAngle(0); // Reset rotation
             this.mazeContainer.add(this.fish);
         } else {
             this.fish.setPosition(
                 -mazeWidth/2 + (fishCell.x + 0.5) * this.cellSize,
                 -mazeHeight/2 + (fishCell.y + 0.5) * this.cellSize
             );
+            this.fish.setTexture(fishKey); // Change the fish texture
+            this.fish.setAngle(0); // Reset rotation
         }
+        this.fish.setVisible(true); // Ensure fish is visible for the new round
     }
 
     private setupGameObjects() {
@@ -563,31 +645,63 @@ export class PenguinPursuitGameplayScene extends Scene {
     }
 
     private createUI() {
-        // Score text
-        this.scoreText = this.add.text(20, 20, `SCORE: ${this.score}`, {
-            fontFamily: 'Arial',
-            fontSize: '24px',
-            color: '#000000'
-        });
-        this.scoreText.setDepth(100);
+        // Create header container
+        this.uiHeader = this.add.container(0, 0);
+        this.uiHeader.setDepth(100); // Set depth for the entire header block
+
+        // Create header background
+        const headerBg = this.add.graphics();
+        headerBg.fillStyle(0x222222, 0.8); // Dark semi-transparent background
+        headerBg.fillRect(0, 0, this.cameras.main.width, 60); // Header height of 60px
+        this.uiHeader.add(headerBg); // Added first, will be at the bottom within uiHeader
+
+        // Calculate UI positions for horizontal layout
+        const padding = 20;
+        const headerHeight = 60;
+        const verticalCenterY = headerHeight / 2;
+        const screenWidth = this.cameras.main.width;
+
+        // Score text - positioned on the left side
+        this.scoreText = this.add.text(
+            padding, // X position from left edge
+            verticalCenterY, // Y position, vertically centered in header
+            `SCORE: ${this.score}`,
+            {
+                fontFamily: 'Arial',
+                fontSize: '22px',
+                color: '#ffffff'
+            }
+        );
+        this.scoreText.setOrigin(0, 0.5); // Left aligned, vertically centered
+        this.uiHeader.add(this.scoreText); // Add to uiHeader directly
+
+        // Trial text - positioned in the center
+        this.trialText = this.add.text(
+            screenWidth / 2, // X position (center of screen)
+            verticalCenterY, // Y position, vertically centered in header
+            `TRIAL: ${this.currentTrial}/${this.totalTrials}`,
+            {
+                fontFamily: 'Arial',
+                fontSize: '22px',
+                color: '#ffffff'
+            }
+        );
+        this.trialText.setOrigin(0.5, 0.5); // Center aligned, vertically centered
+        this.uiHeader.add(this.trialText); // Add to uiHeader directly
+
+        // Create difficulty button and position it on the right side
+        this.createDifficultyButton(this.uiHeader); // Pass uiHeader as parent
         
-        // Level text
-        this.levelText = this.add.text(20, 50, `LEVEL: ${this.level}`, {
-            fontFamily: 'Arial',
-            fontSize: '24px',
-            color: '#000000'
-        });
-        this.levelText.setDepth(100);
-        
-        // Trial text
-        this.trialText = this.add.text(20, 80, `TRIAL: ${this.currentTrial}/${this.totalTrials}`, {
-            fontFamily: 'Arial',
-            fontSize: '24px',
-            color: '#000000'
-        });
-        this.trialText.setDepth(100);
-        
-        // Result text (initially hidden)
+        // Position the difficulty button
+        // Button width is 100 (from its internal graphics at -50 to +50), so its center is its origin (0,0)
+        const buttonWidth = 100; 
+        this.difficultyButton.setPosition(
+            screenWidth - padding - (buttonWidth / 2), // Position center of button from right edge
+            verticalCenterY // Vertically centered in header
+        );
+        // Note: difficultyButton.setDepth() is removed as uiHeader handles depth
+
+        // Result text (initially hidden) - unchanged positioning relative to screen center
         this.resultText = this.add.text(
             this.cameras.main.width / 2,
             this.cameras.main.height / 2,
@@ -604,10 +718,64 @@ export class PenguinPursuitGameplayScene extends Scene {
         this.resultText.setDepth(200);
         this.resultText.setVisible(false);
     }
+    
+    // Create difficulty button with position parameters
+    private createDifficultyButton(parent: Phaser.GameObjects.Container) {
+        this.difficultyButton = this.add.container();
+        parent.add(this.difficultyButton);
+        
+        // Button background
+        const buttonBg = this.add.graphics();
+        buttonBg.fillStyle(0x444444, 1);
+        buttonBg.fillRoundedRect(-50, -15, 100, 30, 8);
+        buttonBg.lineStyle(2, 0xffffff, 1);
+        buttonBg.strokeRoundedRect(-50, -15, 100, 30, 8);
+        this.difficultyButton.add(buttonBg);
+        
+        // Button text
+        const buttonText = this.add.text(0, 0, this.difficulty === 'normal' ? 'NORMAL' : 'HARD', {
+            fontFamily: 'Arial',
+            fontSize: '16px',
+            color: '#ffffff'
+        });
+        buttonText.setOrigin(0.5);
+        this.difficultyButton.add(buttonText);
+        
+        // Make button interactive
+        this.difficultyButton.setInteractive(new Phaser.Geom.Rectangle(-50, -15, 100, 30), Phaser.Geom.Rectangle.Contains);
+        
+        // Add click handler
+        this.difficultyButton.on('pointerdown', () => {
+            // Toggle difficulty
+            this.difficulty = this.difficulty === 'normal' ? 'hard' : 'normal';
+            
+            // Update button text
+            buttonText.setText(this.difficulty === 'normal' ? 'NORMAL' : 'HARD');
+        });
+        
+        // Add hover effects
+        this.difficultyButton.on('pointerover', () => {
+            buttonBg.clear();
+            buttonBg.fillStyle(0x666666, 1); // Lighter color on hover
+            buttonBg.fillRoundedRect(-50, -15, 100, 30, 8);
+            buttonBg.lineStyle(2, 0xffffff, 1);
+            buttonBg.strokeRoundedRect(-50, -15, 100, 30, 8);
+        });
+        
+        this.difficultyButton.on('pointerout', () => {
+            buttonBg.clear();
+            buttonBg.fillStyle(0x444444, 1); // Back to normal color
+            buttonBg.fillRoundedRect(-50, -15, 100, 30, 8);
+            buttonBg.lineStyle(2, 0xffffff, 1);
+            buttonBg.strokeRoundedRect(-50, -15, 100, 30, 8);
+        });
+    }
 
     private setupInput() {
         // Set up keyboard input
-        this.cursors = this.input.keyboard.createCursorKeys();
+        if (this.input && this.input.keyboard) {
+            this.cursors = this.input.keyboard.createCursorKeys();
+        }
     }
 
     private handlePlayerInput() {
@@ -696,9 +864,9 @@ export class PenguinPursuitGameplayScene extends Scene {
             onComplete: () => {
                 this.playerMoving = false;
                 
-                // Check if player reached the fish
-                const fishCell = this.getCellFromPosition(this.fish.x, this.fish.y);
-                if (this.playerPenguin.cell.x === fishCell.x && this.playerPenguin.cell.y === fishCell.y) {
+                // Check if player reached the fish using sprite collision
+                if (this.checkPenguinFishCollision(this.playerPenguin.sprite)) {
+                    this.fish.setVisible(false);
                     this.playerWins();
                 }
             }
@@ -761,20 +929,24 @@ export class PenguinPursuitGameplayScene extends Scene {
             const targetX = -mazeWidth/2 + (nextStep.x + 0.5) * this.cellSize;
             const targetY = -mazeHeight/2 + (nextStep.y + 0.5) * this.cellSize;
             
+            // Determine enemy speed based on difficulty
+            const baseSpeed = this.difficulty === 'normal' ? 400 : 300; // Lower value = faster movement
+            const moveDuration = baseSpeed - (this.currentTrial * 15); // Speed increases with trials
+            
             // Animate enemy movement
             this.enemyMoving = true;
             this.tweens.add({
                 targets: this.enemyPenguin.sprite,
                 x: targetX,
                 y: targetY,
-                duration: 400 - (this.level * 10), // Slower base speed and smaller level increment
+                duration: Math.max(moveDuration, 150), // Ensure minimum speed
                 ease: 'Linear',
                 onComplete: () => {
                     this.enemyMoving = false;
                     
-                    // Check if enemy reached the fish
-                    const fishCell = this.getCellFromPosition(this.fish.x, this.fish.y);
-                    if (this.enemyPenguin.cell.x === fishCell.x && this.enemyPenguin.cell.y === fishCell.y) {
+                    // Check if enemy reached the fish using sprite collision
+                    if (this.checkPenguinFishCollision(this.enemyPenguin.sprite)) {
+                        this.fish.setVisible(false);
                         this.enemyWins();
                     }
                 }
@@ -838,10 +1010,11 @@ export class PenguinPursuitGameplayScene extends Scene {
     private playerWins() {
         this.isRoundComplete = true;
         
-        // Calculate score based on formula from GDD
+        // Calculate score based on difficulty
         const playerDistance = this.playerPenguin.previousPositions.length;
         const enemyDistance = this.enemyPenguin.previousPositions.length;
-        const points = (playerDistance - enemyDistance) * 2 * (10 * this.level);
+        const difficultyMultiplier = this.difficulty === 'normal' ? 10 : 20;
+        const points = Math.max(10, (playerDistance - enemyDistance) * 2 * difficultyMultiplier);
         
         this.score += points;
         this.scoreText.setText(`SCORE: ${this.score}`);
@@ -850,10 +1023,6 @@ export class PenguinPursuitGameplayScene extends Scene {
         this.resultText.setText(`YOU WIN! +${points} POINTS`);
         this.resultText.setBackgroundColor('#008800');
         this.resultText.setVisible(true);
-        
-        // Level up
-        this.level++;
-        this.levelText.setText(`LEVEL: ${this.level}`);
         
         // Wait a moment before next trial
         this.time.delayedCall(2000, () => {
@@ -864,40 +1033,25 @@ export class PenguinPursuitGameplayScene extends Scene {
     private enemyWins() {
         this.isRoundComplete = true;
         
-        // Calculate score based on formula from GDD
+        // Calculate score penalty based on difficulty
         const playerDistance = this.playerPenguin.previousPositions.length;
         const enemyDistance = this.enemyPenguin.previousPositions.length;
-        const points = (playerDistance - enemyDistance) * (10 * this.level);
+        const difficultyMultiplier = this.difficulty === 'normal' ? 5 : 10;
+        const points = Math.min(-10, (playerDistance - enemyDistance) * difficultyMultiplier);
         
-        // Add points (could be negative)
+        // Add points (will be negative)
         this.score += points;
         this.scoreText.setText(`SCORE: ${this.score}`);
         
-        // Check if player was close to fish
-        const fishCell = this.getCellFromPosition(this.fish.x, this.fish.y);
-        const playerCell = this.playerPenguin.cell;
-        const distanceToFish = Math.abs(playerCell.x - fishCell.x) + Math.abs(playerCell.y - fishCell.y);
-        
+        // Show lose message
         let message = `PENGUIN BEAT YOU TO THE FISH!`;
         if (points !== 0) {
-            message += ` ${points > 0 ? '+' : ''}${points} POINTS`;
+            message += ` ${points} POINTS`;
         }
         
         this.resultText.setText(message);
         this.resultText.setBackgroundColor('#880000');
         this.resultText.setVisible(true);
-        
-        // Adjust level based on distance to fish
-        if (distanceToFish <= 3) {
-            // Player was close, keep level
-            // No change to level
-        } else {
-            // Player was far, decrease level
-            if (this.level > 1) {
-                this.level--;
-                this.levelText.setText(`LEVEL: ${this.level}`);
-            }
-        }
         
         // Wait a moment before next trial
         this.time.delayedCall(2000, () => {
@@ -917,6 +1071,20 @@ export class PenguinPursuitGameplayScene extends Scene {
             
             // Reset maze rotation
             this.mazeContainer.setAngle(0);
+            
+            // Reset sprite rotations if they exist
+            if (this.playerPenguin && this.playerPenguin.sprite) {
+                this.playerPenguin.sprite.setAngle(0);
+            }
+            if (this.enemyPenguin && this.enemyPenguin.sprite) {
+                this.enemyPenguin.sprite.setAngle(0);
+            }
+            if (this.fish) {
+                this.fish.setAngle(0);
+            }
+            if (this.directionIndicator) {
+                this.directionIndicator.setAngle(0);
+            }
             
             // Reset and create new maze
             this.initializeLevel();
@@ -973,5 +1141,27 @@ export class PenguinPursuitGameplayScene extends Scene {
             duration: 1000,
             ease: 'Cubic.easeInOut'
         });
+
+        // Counter-rotate the player, enemy, and fish sprites (but not the direction indicator)
+        this.tweens.add({
+            targets: [this.playerPenguin.sprite, this.enemyPenguin.sprite, this.fish],
+            angle: '-=90', // Rotate in the opposite direction
+            duration: 1000,
+            ease: 'Cubic.easeInOut'
+        });
+    }
+
+    private checkPenguinFishCollision(penguinSprite: Phaser.GameObjects.Sprite): boolean {
+        if (!this.fish || !this.fish.visible) return false;
+
+        const distance = Phaser.Math.Distance.Between(
+            penguinSprite.x, penguinSprite.y,
+            this.fish.x, this.fish.y
+        );
+
+        // Consider a catch if the penguin's center is within the fish's radius
+        const fishRadius = this.fish.displayWidth / 2;
+
+        return distance < fishRadius;
     }
 } 
